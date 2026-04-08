@@ -1,4 +1,4 @@
-const API_BASE_URL = 'https://cerebro-6bzw.onrender.com';
+const API_BASE_URL = window.location.origin + '/api';
 const sessionId = localStorage.getItem('cerebro_session');
 const userData = JSON.parse(localStorage.getItem('cerebro_user') || '{}');
 
