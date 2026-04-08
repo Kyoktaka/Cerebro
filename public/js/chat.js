@@ -8,7 +8,8 @@ let currentMessages = [];
 let isPDFMode = false;
 let currentPDFName = '';
 let currentPDFCount = 0;
-let isUploading = false; // Prevent re-render during upload
+let currentPDFNames = [];
+let isUploading = false;
 
 // DOM Elements
 const sidebar = document.getElementById('chatSidebar');
@@ -40,42 +41,40 @@ if (!sessionId) {
 // Set user name
 if (userName) userName.textContent = userData.firstName || userData.lastName;
 
-// PDF MODE FUNCTIONS
+// SIDEBAR-ONLY REFRESH (never reloads conversation)
+async function refreshSidebarOnly() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}`);
+        const data = await response.json();
+        conversations = data.conversations || [];
+        renderConversationList();
+    } catch (err) {
+        console.error('Error refreshing sidebar:', err);
+    }
+}
 
-function enablePDFMode(pdfName, pdfCount = 1) {
+// PDF MODE FUNCTIONS
+function enablePDFMode(pdfName, pdfCount = 1, pdfNames = []) {
     console.log('Enabling PDF Mode');
     isPDFMode = true;
     currentPDFName = pdfName;
     currentPDFCount = pdfCount;
+    currentPDFNames = pdfNames.length > 0 ? pdfNames : (pdfName ? [pdfName] : []);
 
-    // Show PDF Mode badge in header
-    if (pdfModeBadge) {
-        pdfModeBadge.style.display = 'flex';
-    }
+    if (pdfModeBadge) pdfModeBadge.style.display = 'flex';
+    if (studyModeBar) studyModeBar.style.display = 'flex';
 
-    // Show study mode bar
-    if (studyModeBar) {
-        studyModeBar.style.display = 'flex';
-    }
+    renderPDFChips();
 
-    // Update file name display
-    if (pdfFileNameSpan) {
+    if (pdfCounter) {
         if (pdfCount > 1) {
-            pdfFileNameSpan.textContent = `${pdfCount} PDFs`;
+            pdfCounter.textContent = `${pdfCount}/10`;
+            pdfCounter.style.display = 'inline-block';
         } else {
-            pdfFileNameSpan.textContent = pdfName;
+            pdfCounter.style.display = 'none';
         }
     }
-
-    // Update counter
-    if (pdfCounter && pdfCount > 1) {
-        pdfCounter.textContent = `${pdfCount}/10`;
-        pdfCounter.style.display = 'inline-block';
-    } else if (pdfCounter) {
-        pdfCounter.style.display = 'none';
-    }
-
-    console.log(' PDF Mode enabled');
+    console.log('PDF Mode enabled');
 }
 
 function disablePDFMode() {
@@ -83,42 +82,273 @@ function disablePDFMode() {
     isPDFMode = false;
     currentPDFName = '';
     currentPDFCount = 0;
+    currentPDFNames = [];
 
-    // Hide PDF Mode badge
-    if (pdfModeBadge) {
-        pdfModeBadge.style.display = 'none';
+    if (pdfModeBadge) pdfModeBadge.style.display = 'none';
+    if (studyModeBar) studyModeBar.style.display = 'none';
+
+    closePDFManager();
+    console.log('PDF Mode disabled');
+}
+
+
+// PDF Manage
+function renderPDFChips() {
+    if (!pdfFileNameSpan) return;
+    pdfFileNameSpan.innerHTML = '';
+
+    if (currentPDFNames.length === 0) {
+        pdfFileNameSpan.textContent = currentPDFName || '';
+        return;
     }
 
-    // Hide study mode bar
-    if (studyModeBar) {
-        studyModeBar.style.display = 'none';
+    currentPDFNames.forEach((name) => {
+        const chip = document.createElement('span');
+        chip.className = 'pdf-chip';
+        chip.title = name;
+        chip.dataset.name = name;
+        chip.innerHTML = `<i class="fas fa-file-pdf"></i> ${truncateName(name, 20)}`;
+        chip.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openPDFManager();
+        });
+        pdfFileNameSpan.appendChild(chip);
+    });
+
+    // Add a "Manage" button after the chips if more than 1
+    if (currentPDFNames.length > 1) {
+        const manageBtn = document.createElement('span');
+        manageBtn.className = 'pdf-manage-btn';
+        manageBtn.innerHTML = `<i class="fas fa-sliders-h"></i> Manage`;
+        manageBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openPDFManager();
+        });
+        pdfFileNameSpan.appendChild(manageBtn);
+    }
+}
+
+function truncateName(name, max) {
+    if (name.length <= max) return name;
+    const ext = name.lastIndexOf('.');
+    if (ext !== -1) {
+        const keep = max - 3 - (name.length - ext);
+        return keep > 0 ? name.substring(0, keep) + '...' + name.substring(ext) : '...' + name.substring(ext);
+    }
+    return name.substring(0, max) + '...';
+}
+
+// PDF MANAGER PANEL (multi-select)
+let activePDFManagerPanel = null;
+
+function openPDFManager() {
+    // Toggle: if panel is already open, close it
+    if (activePDFManagerPanel) {
+        closePDFManager();
+        return;
     }
 
-    console.log(' PDF Mode disabled');
+    const panel = document.createElement('div');
+    panel.id = 'pdfManagerPanel';
+    panel.className = 'pdf-manager-panel';
+
+    const listItems = currentPDFNames.map((name) => `
+        <label class="pdf-manager-item" title="${escapeHtml(name)}">
+            <input type="checkbox" class="pdf-focus-check" data-name="${escapeHtml(name)}" checked>
+            <i class="fas fa-file-pdf"></i>
+            <span class="pdf-item-name">${escapeHtml(truncateName(name, 30))}</span>
+        </label>
+    `).join('');
+
+    panel.innerHTML = `
+        <div class="pdf-manager-header">
+            <i class="fas fa-layer-group"></i>
+            <span class="pdf-manager-title">Manage PDFs (${currentPDFNames.length}/10)</span>
+            <button class="pdf-manager-close" id="pdfManagerClose"><i class="fas fa-times"></i></button>
+        </div>
+        <p class="pdf-manager-hint">Checked = AI will focus on it | Unchecked = excluded</p>
+        <div class="pdf-manager-list">
+            ${listItems}
+        </div>
+        <div class="pdf-manager-footer">
+            <button class="pdf-manager-action-btn pdf-select-all-btn" id="pdfSelectAll">
+                <i class="fas fa-check-double"></i> Select All
+            </button>
+            <button class="pdf-manager-action-btn pdf-apply-btn" id="pdfApplyFocus">
+                <i class="fas fa-crosshairs"></i> Apply Focus
+            </button>
+            <button class="pdf-manager-action-btn pdf-delete-btn" id="pdfDeleteSelected">
+                <i class="fas fa-trash-alt"></i> Delete Checked
+            </button>
+        </div>
+    `;
+
+    studyModeBar.parentNode.insertBefore(panel, studyModeBar.nextSibling);
+    activePDFManagerPanel = panel;
+    requestAnimationFrame(() => panel.classList.add('pdf-manager-panel-open'));
+
+    document.getElementById('pdfManagerClose').addEventListener('click', (e) => {
+        e.stopPropagation();
+        closePDFManager();
+    });
+
+    document.getElementById('pdfSelectAll').addEventListener('click', (e) => {
+        e.stopPropagation();
+        const checks = panel.querySelectorAll('.pdf-focus-check');
+        const allChecked = [...checks].every(c => c.checked);
+        checks.forEach(c => c.checked = !allChecked);
+        e.currentTarget.innerHTML = allChecked
+            ? '<i class="fas fa-check-double"></i> Select All'
+            : '<i class="fas fa-times"></i> Deselect All';
+    });
+
+    document.getElementById('pdfApplyFocus').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const selected = getSelectedNames(panel);
+        if (selected.length === 0) {
+            showPanelError(panel, 'Check at least one PDF to focus on.');
+            return;
+        }
+        if (selected.length === currentPDFNames.length) {
+            // All selected = no change, just close
+            closePDFManager();
+            return;
+        }
+        await applyFocus(selected);
+    });
+
+    document.getElementById('pdfDeleteSelected').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const selected = getSelectedNames(panel);
+        if (selected.length === 0) {
+            showPanelError(panel, 'Check at least one PDF to delete.');
+            return;
+        }
+        await deleteSelectedPDFs(selected);
+    });
+}
+
+function getSelectedNames(panel) {
+    return [...panel.querySelectorAll('.pdf-focus-check:checked')].map(c => c.dataset.name);
+}
+
+function showPanelError(panel, msg) {
+    let err = panel.querySelector('.pdf-panel-error');
+    if (!err) {
+        err = document.createElement('p');
+        err.className = 'pdf-panel-error';
+        panel.querySelector('.pdf-manager-footer').before(err);
+    }
+    err.textContent = msg;
+    setTimeout(() => { if (err.parentNode) err.remove(); }, 2500);
+}
+
+function closePDFManager() {
+    if (activePDFManagerPanel) {
+        activePDFManagerPanel.remove();
+        activePDFManagerPanel = null;
+    }
+}
+
+// Close panel when clicking outside
+document.addEventListener('click', (e) => {
+    if (activePDFManagerPanel &&
+        !activePDFManagerPanel.contains(e.target) &&
+        !e.target.closest('.pdf-chip') &&
+        !e.target.closest('.pdf-manage-btn')) {
+        closePDFManager();
+    }
+});
+
+async function applyFocus(namesToKeep) {
+    closePDFManager();
+
+    try {
+        await fetch(`${API_BASE_URL}/conversations/${sessionId}/focus-pdf`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                conversationId: currentConversationId,
+                pdfNames: namesToKeep
+            })
+        });
+    } catch (error) {
+        console.error('Focus PDF error:', error);
+    }
+
+    currentPDFNames = namesToKeep;
+    currentPDFCount = namesToKeep.length;
+    currentPDFName = namesToKeep[0];
+    enablePDFMode(currentPDFName, currentPDFCount, currentPDFNames);
+
+    const listStr = namesToKeep.map(n => `- ${n}`).join('\n');
+    const msg = `Focus applied to ${namesToKeep.length} PDF(s)\n\n${listStr}\n\nAsk me anything about these documents!`;
+    addMessageToUI(msg, 'bot');
+    currentMessages.push({ role: 'assistant', content: msg, timestamp: new Date().toISOString() });
+}
+
+async function deleteSelectedPDFs(namesToDelete) {
+    const remaining = currentPDFNames.filter(n => !namesToDelete.includes(n));
+    const label = namesToDelete.length === 1 ? `"${namesToDelete[0]}"` : `${namesToDelete.length} PDFs`;
+    const confirmMsg = remaining.length === 0
+        ? `Delete ${label}? PDF Mode will be disabled.`
+        : `Delete ${label}? ${remaining.length} PDF(s) will remain.`;
+
+    if (!confirm(confirmMsg)) return;
+    closePDFManager();
+
+    for (const name of namesToDelete) {
+        try {
+            await fetch(`${API_BASE_URL}/conversations/${sessionId}/delete-pdf`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ conversationId: currentConversationId, pdfName: name })
+            });
+        } catch (e) {
+            console.error('Delete PDF error:', e);
+        }
+    }
+
+    currentPDFNames = remaining;
+    currentPDFCount = remaining.length;
+
+    if (remaining.length === 0) {
+        disablePDFMode();
+        const msg = `Removed ${label}\n\nNo PDFs remaining - switched back to normal chat mode.`;
+        addMessageToUI(msg, 'bot');
+        currentMessages.push({ role: 'assistant', content: msg, timestamp: new Date().toISOString() });
+    } else {
+        currentPDFName = remaining[0];
+        enablePDFMode(currentPDFName, currentPDFCount, remaining);
+        const msg = `Removed ${label}\n\n${remaining.length} PDF(s) still loaded. You can upload up to ${10 - remaining.length} more.`;
+        addMessageToUI(msg, 'bot');
+        currentMessages.push({ role: 'assistant', content: msg, timestamp: new Date().toISOString() });
+    }
 }
 
 // Exit PDF Mode button
 if (exitStudyModeBtn) {
     exitStudyModeBtn.addEventListener('click', async () => {
-        console.log('🔘 Exit PDF Mode button clicked');
+        console.log('Exit PDF Mode button clicked');
         try {
             await fetch(`${API_BASE_URL}/conversations/${sessionId}/clear-pdfs`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ conversationId: currentConversationId })
             });
-            console.log(' PDF context cleared');
+            console.log('PDF context cleared');
         } catch (error) {
             console.error('Error clearing PDF context:', error);
         }
         disablePDFMode();
-        addMessageToUI(" **Exited PDF Mode**\n\nI've switched back to normal chat mode. You can upload a new PDF to study, or just chat normally.", 'bot');
-        currentMessages.push({ role: 'assistant', content: " **Exited PDF Mode**\n\nI've switched back to normal chat mode. You can upload a new PDF to study, or just chat normally.", timestamp: new Date().toISOString() });
+        const msg = "Exited PDF Mode\n\nSwitched back to normal chat mode. Upload a new PDF anytime!";
+        addMessageToUI(msg, 'bot');
+        currentMessages.push({ role: 'assistant', content: msg, timestamp: new Date().toISOString() });
     });
 }
 
-// SIDEBAR FUNCTIONS
 
+// SIDEBAR FUNCTIONS
 let isSidebarCollapsed = false;
 
 function loadSidebarState() {
@@ -195,8 +425,8 @@ window.addEventListener('resize', () => {
     }
 });
 
-// CONVERSATION MANAGEMENT
 
+// CONVERSATION MANAGEMENT
 function groupConversationsByDate(conversations) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -303,9 +533,8 @@ async function loadConversation(conversationId) {
         const conv = conversations.find(c => c.id === conversationId);
         if (chatTitle) chatTitle.textContent = conv?.title || 'Conversation';
 
-        // Restore PDF mode if this conversation had PDFs
         if (data.pdfNames && data.pdfNames.length > 0) {
-            enablePDFMode(data.pdfNames[0], data.pdfCount || data.pdfNames.length);
+            enablePDFMode(data.pdfNames[0], data.pdfCount || data.pdfNames.length, data.pdfNames);
         } else {
             disablePDFMode();
         }
@@ -337,7 +566,7 @@ async function editConversation(conversationId, currentTitle) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ title: newTitle })
                 });
-                await loadConversations();
+                await refreshSidebarOnly();
                 if (currentConversationId === conversationId && chatTitle) {
                     chatTitle.textContent = newTitle;
                 }
@@ -382,10 +611,9 @@ async function deleteConversation(conversationId) {
 function renderCurrentConversation() {
     if (!chatMessages) return;
 
-    // Don't clear during upload
     if (isUploading) return;
 
-    if (!currentMessages || currentMessages.length === 0) {
+    if (currentMessages.length === 0) {
         chatMessages.innerHTML = `
             <div class="welcome-message">
                 <i class="fas fa-brain"></i>
@@ -396,44 +624,35 @@ function renderCurrentConversation() {
         return;
     }
 
-    // Clear and rebuild all messages
     chatMessages.innerHTML = '';
     for (const msg of currentMessages) {
-        const messageDiv = document.createElement('div');
-        messageDiv.className = `message ${msg.role === 'user' ? 'user' : 'bot'}`;
-        let content = `<div class="message-content">${formatMessage(msg.content)}`;
-
-        if (msg.attachments && msg.attachments.length > 0) {
-            for (const file of msg.attachments) {
-                content += `<div class="message-attachment"><i class="fas fa-file-pdf"></i> ${escapeHtml(file.name)}</div>`;
-            }
-        }
-
-        content += `</div>`;
-        messageDiv.innerHTML = content;
-        chatMessages.appendChild(messageDiv);
+        addMessageToUI(msg.content, msg.role, msg.attachments, msg._isProcessing || false);
     }
-
     scrollToBottom();
 }
 
-function addMessageToUI(text, role, attachments = null) {
+function addMessageToUI(text, role, attachments = null, isProcessing = false) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role === 'user' ? 'user' : 'bot'}`;
-    let content = `<div class="message-content">${formatMessage(text)}`;
-    if (attachments && attachments.length > 0) {
-        for (const file of attachments) {
-            content += `<div class="message-attachment"><i class="fas fa-file-pdf"></i> ${escapeHtml(file.name)}</div>`;
+    let content;
+    if (isProcessing) {
+        content = `<div class="message-content status-content"><i class="fas fa-circle-notch fa-spin"></i> ${formatMessage(text)}</div>`;
+    } else {
+        content = `<div class="message-content">${formatMessage(text)}`;
+        if (attachments && attachments.length > 0) {
+            for (const file of attachments) {
+                content += `<div class="message-attachment"><i class="fas fa-file-pdf"></i> ${escapeHtml(file.name)}</div>`;
+            }
         }
+        content += `</div>`;
     }
-    content += `</div>`;
     messageDiv.innerHTML = content;
     chatMessages.appendChild(messageDiv);
     scrollToBottom();
 }
 
-// SEND MESSAGE
 
+// SEND MESSAGE
 async function sendMessage() {
     const message = chatInput.value.trim();
     if (!message) return;
@@ -449,8 +668,8 @@ async function sendMessage() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                message: message,
-                sessionId: sessionId,
+                message,
+                sessionId,
                 conversationId: currentConversationId,
                 history: currentMessages.slice(-10)
             })
@@ -462,19 +681,20 @@ async function sendMessage() {
         if (data.answer) {
             addMessageToUI(data.answer, 'bot');
             currentMessages.push({ role: 'assistant', content: data.answer, timestamp: new Date().toISOString() });
-            await loadConversations();
+            // Only refresh sidebar, NEVER reload the conversation from server
+            await refreshSidebarOnly();
         } else {
-            addMessageToUI(' Sorry, I received an unexpected response. Please try again.', 'bot');
+            addMessageToUI('Sorry, I received an unexpected response. Please try again.', 'bot');
         }
     } catch (error) {
         console.error('Send message error:', error);
         removeTypingIndicator();
-        addMessageToUI(' Sorry, I encountered an error. Please make sure the backend is running.', 'bot');
+        addMessageToUI('Sorry, I encountered an error. Please make sure the backend is running.', 'bot');
     }
 }
 
-// PDF UPLOAD - FIXED VERSION
 
+// PDF UPLOAD
 if (uploadBtn) {
     uploadBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -500,49 +720,31 @@ if (fileInput) {
         const files = e.target.files;
         if (files.length === 0) return;
 
-        isUploading = true; // Prevent re-renders from wiping chat
-
+        isUploading = true;
         const fileNames = Array.from(files).map(f => f.name);
 
-        // Show uploading message
-        addMessageToUI(` **Uploading ${fileNames.length} file(s)...**\n\n${fileNames.map(f => `• ${f}`).join('\n')}`, 'user');
-
-        // Add these messages to currentMessages array
-        currentMessages.push({
-            role: 'user',
-            content: ` **Uploading ${fileNames.length} file(s)...**\n\n${fileNames.map(f => `• ${f}`).join('\n')}`,
-            timestamp: new Date().toISOString()
-        });
+        // Save upload message into currentMessages immediately
+        const uploadMsg = `Uploading ${fileNames.length} file(s)...\n\n${fileNames.map(f => `- ${f}`).join('\n')}`;
+        addMessageToUI(uploadMsg, 'user');
+        currentMessages.push({ role: 'user', content: uploadMsg, timestamp: new Date().toISOString() });
 
         // Check file sizes
-        let sizeError = false;
         for (const file of files) {
             if (file.size > 10 * 1024 * 1024) {
-                addMessageToUI(` **${file.name} exceeds 10MB limit**`, 'bot');
-                currentMessages.push({
-                    role: 'assistant',
-                    content: ` **${file.name} exceeds 10MB limit**`,
-                    timestamp: new Date().toISOString()
-                });
-                sizeError = true;
-                break;
+                const errMsg = `${file.name} exceeds 10MB limit`;
+                addMessageToUI(errMsg, 'bot');
+                currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
+                fileInput.value = '';
+                isUploading = false;
+                return;
             }
         }
 
-        if (sizeError) {
-            fileInput.value = '';
-            isUploading = false;
-            return;
-        }
-
-        // Show processing indicator
-        const processingMsgId = 'processing_' + Date.now();
-        const processingDiv = document.createElement('div');
-        processingDiv.id = processingMsgId;
-        processingDiv.className = 'message bot';
-        processingDiv.innerHTML = `<div class="message-content"><i class="fas fa-circle-notch fa-spin"></i> Processing PDF(s)... Extracting text...</div>`;
-        chatMessages.appendChild(processingDiv);
-        scrollToBottom();
+        // Add spinner to currentMessages so it survives any re-render
+        const processingMsg = { role: 'assistant', content: 'Processing PDF(s)... Extracting text...', _isProcessing: true, timestamp: new Date().toISOString() };
+        currentMessages.push(processingMsg);
+        const processingIndex = currentMessages.length - 1;
+        addMessageToUI(processingMsg.content, 'assistant');
 
         const formData = new FormData();
         for (let file of files) formData.append('files', file);
@@ -554,80 +756,47 @@ if (fileInput) {
                 method: 'POST',
                 body: formData
             });
-
             const result = await response.json();
 
-            // Remove processing indicator
-            const processingElement = document.getElementById(processingMsgId);
-            if (processingElement) processingElement.remove();
+            // Remove the processing placeholder from currentMessages
+            currentMessages.splice(processingIndex, 1);
+            renderCurrentConversation();
 
             if (result.success) {
-                // Build the success message
-                let successMessage = `✅ **PDF Upload Complete!**\n\n`;
-                successMessage += `**Files uploaded:**\n${fileNames.map(f => `• ${f}`).join('\n')}\n\n`;
-                successMessage += `📊 **Stats:** ${result.pdfCount}/${result.maxPDFs} PDFs | ${Math.round(result.charCount / 1000)}K characters\n\n`;
-                successMessage += `📚 **I'm now in PDF Mode.** Ask me questions about your documents!`;
+                const allPDFNames = result.pdfNames || fileNames;
+                let successMessage = `PDF Upload Complete!\n\n`;
+                successMessage += `Files uploaded:\n${fileNames.map(f => `- ${f}`).join('\n')}\n\n`;
+                successMessage += `Stats: ${result.pdfCount}/${result.maxPDFs} PDFs | ${Math.round(result.charCount / 1000)}K characters\n\n`;
+                successMessage += `PDF Mode active. Click the PDF chips above to manage which documents to focus on!`;
+                if (result.truncated) successMessage += `\n\nNote: Some content was truncated due to length limits.`;
 
-                if (result.truncated) {
-                    successMessage += `\n\n⚠️ **Note:** Some content was truncated due to length limits.`;
-                }
-
-                // Add success message to UI
+                // Save success message to currentMessages so it persists
                 addMessageToUI(successMessage, 'bot');
+                currentMessages.push({ role: 'assistant', content: successMessage, timestamp: new Date().toISOString() });
 
-                // Also add to currentMessages array
-                currentMessages.push({
-                    role: 'assistant',
-                    content: successMessage,
-                    timestamp: new Date().toISOString()
-                });
-
-                // Enable PDF mode
-                enablePDFMode(fileNames[0], result.pdfCount || 1);
-
-                // Force a re-render of messages to ensure everything shows
-                renderCurrentConversation();
-
+                enablePDFMode(fileNames[0], result.pdfCount || 1, allPDFNames);
             } else {
-                const errorMsg = ` **Upload failed**\n\n${result.error || 'Please try again.'}`;
-                addMessageToUI(errorMsg, 'bot');
-                currentMessages.push({
-                    role: 'assistant',
-                    content: errorMsg,
-                    timestamp: new Date().toISOString()
-                });
-                renderCurrentConversation();
+                const errMsg = `Upload failed\n\n${result.error || 'Please try again.'}`;
+                addMessageToUI(errMsg, 'bot');
+                currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
             }
         } catch (error) {
-            // Remove processing indicator
-            const processingElement = document.getElementById(processingMsgId);
-            if (processingElement) processingElement.remove();
-
-            const errorMsg = ' **Failed to upload PDFs**\n\nPlease check your connection.';
-            addMessageToUI(errorMsg, 'bot');
-            currentMessages.push({
-                role: 'assistant',
-                content: errorMsg,
-                timestamp: new Date().toISOString()
-            });
+            // Remove the processing placeholder from currentMessages
+            currentMessages.splice(processingIndex, 1);
             renderCurrentConversation();
-            console.error('Upload error:', error);
+            const errMsg = 'Failed to upload PDFs\n\nPlease check your connection.';
+            addMessageToUI(errMsg, 'bot');
+            currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
         }
 
         isUploading = false;
         fileInput.value = '';
 
-        // Refresh sidebar list
-        try {
-            const convResponse = await fetch(`${API_BASE_URL}/conversations/${sessionId}`);
-            const convData = await convResponse.json();
-            conversations = convData.conversations || [];
-            renderConversationList();
-        } catch (err) {
-            console.error('Error refreshing conversations:', err);
-        }
+        // Only refresh sidebar - never reload conversation
+        await refreshSidebarOnly();
     });
 }
+
 
 // UTILITY FUNCTIONS
 
@@ -707,8 +876,8 @@ if (deleteAccountBtn) {
     });
 }
 
-// INITIALIZE
 
+// INITIALIZE
 loadConversations();
 
 window.loadConversation = loadConversation;
