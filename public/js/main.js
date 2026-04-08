@@ -4,10 +4,29 @@ const API_BASE_URL = window.location.origin + '/api';
 const hamburger = document.querySelector('.hamburger');
 const navMenu = document.querySelector('.nav-menu');
 
+function closeMenu() {
+    if (!navMenu || !hamburger) return;
+    navMenu.classList.remove('active');
+    hamburger.classList.remove('active');
+    document.body.classList.remove('menu-open');
+}
+
+function openMenu() {
+    if (!navMenu || !hamburger) return;
+    hamburger.classList.add('active');
+    navMenu.classList.add('active');
+    document.body.classList.add('menu-open');
+}
+
 if (hamburger) {
-    hamburger.addEventListener('click', () => {
-        hamburger.classList.toggle('active');
-        navMenu.classList.toggle('active');
+    hamburger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isOpen = navMenu.classList.contains('active');
+        if (isOpen) {
+            closeMenu();
+        } else {
+            openMenu();
+        }
     });
 }
 
@@ -15,9 +34,23 @@ if (hamburger) {
 document.addEventListener('click', (e) => {
     if (navMenu && navMenu.classList.contains('active')) {
         if (!navMenu.contains(e.target) && !hamburger.contains(e.target)) {
-            navMenu.classList.remove('active');
-            hamburger.classList.remove('active');
+            closeMenu();
         }
+    }
+});
+
+// Close menu when clicking a nav link
+const navLinks = document.querySelectorAll('.nav-menu a');
+navLinks.forEach(link => {
+    link.addEventListener('click', () => {
+        closeMenu();
+    });
+});
+
+// Prevent body scroll when menu is open
+window.addEventListener('resize', () => {
+    if (window.innerWidth > 768 && navMenu && navMenu.classList.contains('active')) {
+        closeMenu();
     }
 });
 
@@ -27,9 +60,7 @@ const userData = localStorage.getItem('cerebro_user');
 const authButtons = document.getElementById('authButtons');
 const heroButtons = document.getElementById('heroButtons');
 
-// Function to add mobile auth buttons
 function addMobileAuthButtons() {
-    // Remove existing mobile auth if any
     const existingMobileAuth = document.querySelector('.mobile-auth');
     if (existingMobileAuth) existingMobileAuth.remove();
 
@@ -115,5 +146,4 @@ async function logout() {
 window.logout = logout;
 window.API_BASE_URL = API_BASE_URL;
 
-// Initialize
 updateAuthUI();
