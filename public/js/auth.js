@@ -1,6 +1,6 @@
 console.log(' auth.js loaded');
 
-const API_BASE_URL = window.API_BASE_URL || 'https://cerebro-6bzw.onrender.com';
+const API_BASE_URL = window.location.origin + '/api';
 
 // Toggle password visibility
 document.querySelectorAll('.toggle-password').forEach(icon => {
