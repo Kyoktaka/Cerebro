@@ -22,10 +22,16 @@
 body {
     font-family: 'Inter', sans-serif;
     background: linear-gradient(135deg, var(--dark-bg), var(--darker-bg));
+    background-attachment: fixed;
     color: var(--text-light);
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    overflow-x: hidden;
+}
+
+body.menu-open {
+    overflow-y: hidden;
 }
 
 .container {
@@ -35,7 +41,9 @@ body {
     padding: 0 20px;
 }
 
+
 /* NAVIGATION */
+
 .navbar {
     background: rgba(15, 15, 26, 0.95);
     backdrop-filter: blur(10px);
@@ -135,48 +143,55 @@ body {
     border-radius: 3px;
 }
 
+
 /* Mobile Menu */
+
 @media (max-width: 768px) {
+    html,
+    body {
+        overflow-x: hidden;
+        position: relative;
+        width: 100%;
+    }
     .hamburger {
         display: flex;
     }
-
     .auth-buttons {
         display: none;
     }
-
     .nav-menu {
         position: fixed;
         top: 0;
-        right: -100%;
+        right: 0;
         width: 280px;
-        height: 100vh;
+        max-width: 85vw;
         background: rgba(15, 15, 26, 0.98);
         backdrop-filter: blur(10px);
         flex-direction: column;
         padding: 5rem 1.5rem 2rem;
-        transition: right 0.3s ease;
+        transition: transform 0.3s ease-in-out;
         z-index: 1000;
         gap: 1rem;
         align-items: flex-start;
         border-left: 1px solid var(--border-color);
+        overflow-y: auto;
+        transform: translateX(100%);
+        visibility: visible;
+        pointer-events: none;
     }
-
     .nav-menu.active {
-        right: 0;
+        transform: translateX(0);
+        pointer-events: all;
     }
-
     .nav-menu li {
         width: 100%;
     }
-
     .nav-menu a {
         display: block;
         padding: 0.8rem 0;
         font-size: 1.1rem;
         width: 100%;
     }
-
     /* Mobile auth buttons inside menu */
     .mobile-auth {
         margin-top: 1rem;
@@ -187,7 +202,6 @@ body {
         flex-direction: column;
         gap: 0.8rem;
     }
-
     .mobile-auth .btn-login,
     .mobile-auth .btn-register {
         display: block;
@@ -203,7 +217,9 @@ body {
     }
 }
 
+
 /* HERO SECTION */
+
 .hero {
     padding: 4rem 0;
     text-align: center;
@@ -271,7 +287,9 @@ body {
     color: var(--dark-bg);
 }
 
+
 /* FEATURES */
+
 .features {
     padding: 4rem 0;
     background: rgba(255, 255, 255, 0.02);
@@ -311,7 +329,9 @@ body {
     margin-bottom: 1rem;
 }
 
+
 /* FOOTER */
+
 .footer {
     background: var(--darker-bg);
     padding: 2rem 0;
@@ -322,7 +342,9 @@ body {
     font-size: 0.9rem;
 }
 
+
 /* AUTH PAGES */
+
 .auth-wrapper {
     min-height: 100vh;
     display: flex;
@@ -460,7 +482,9 @@ body {
     font-size: 0.9rem;
 }
 
+
 /* ABOUT PAGE */
+
 .about-page {
     padding: 2rem 0;
 }
@@ -533,18 +557,25 @@ body {
 }
 
 .team-avatar {
-    width: 80px;
-    height: 80px;
-    background: rgba(255, 215, 0, 0.1);
+    width: 120px;
+    height: 120px;
+    margin: 0 auto 1rem;
     border-radius: 50%;
+    overflow: hidden;
+    background: rgba(255, 215, 0, 0.1);
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 1rem;
+}
+
+.team-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .team-avatar i {
-    font-size: 2.5rem;
+    font-size: 3rem;
     color: var(--secondary-color);
 }
 
@@ -576,26 +607,21 @@ body {
 }
 
 @media (max-width: 768px) {
-
     .steps,
     .team-grid {
         grid-template-columns: 1fr;
     }
-
     .row {
         grid-template-columns: 1fr;
         gap: 0;
     }
-
     .hero-content h1 {
         font-size: 2rem;
     }
-
     .hero-buttons {
         flex-direction: column;
         align-items: center;
     }
-
     .btn {
         width: 100%;
         max-width: 280px;
@@ -603,30 +629,9 @@ body {
     }
 }
 
-.team-avatar {
-    width: 120px;
-    height: 120px;
-    margin: 0 auto 1rem;
-    border-radius: 50%;
-    overflow: hidden;
-    background: rgba(255, 215, 0, 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.team-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.team-avatar i {
-    font-size: 3rem;
-    color: var(--secondary-color);
-}
 
 /* Back Button */
+
 .back-home {
     position: fixed;
     top: 1rem;
