@@ -273,7 +273,6 @@
     font-weight: 500;
 }
 
-
 /*CHAT MESSAGES*/
 .chat-messages {
     flex: 1;
@@ -378,7 +377,6 @@
     padding: 0.2rem 0.5rem;
     border-radius: 20px;
 }
-
 
 /*CHAT INPUT AREA*/
 .chat-input-area {
@@ -619,8 +617,6 @@
 }
 
 @media (min-width: 769px) {
-
-    /* Desktop: Show close button on hover or always */
     .close-sidebar {
         display: block;
         opacity: 0.5;
@@ -656,9 +652,7 @@
     }
 }
 
-
 /* MENU TOGGLE VISIBILITY CONTROL */
-/* On desktop, hide menu toggle when sidebar is expanded */
 @media (min-width: 769px) {
     body.sidebar-collapsed .menu-toggle {
         display: flex;
@@ -669,14 +663,12 @@
     }
 }
 
-/* On mobile, always show menu toggle */
 @media (max-width: 768px) {
     .menu-toggle {
         display: flex !important;
     }
 }
 
-/* Ensure menu toggle is properly displayed as flex */
 .menu-toggle {
     display: flex;
     align-items: center;
@@ -755,7 +747,7 @@
     }
 }
 
-/* Study Mode Bar - Updated */
+/* Study Mode Bar */
 .study-mode-bar {
     display: flex;
     align-items: center;
@@ -799,8 +791,6 @@
 }
 
 /* PDF CHIPS & MANAGER PANEL */
-
-/* Clickable PDF name chips in study mode bar */
 .pdf-chip {
     display: inline-flex;
     align-items: center;
@@ -832,7 +822,6 @@
     flex-shrink: 0;
 }
 
-/* Manage button (shown when multiple PDFs) */
 .pdf-manage-btn {
     display: inline-flex;
     align-items: center;
@@ -855,7 +844,6 @@
     border-color: var(--secondary-color);
 }
 
-/* PDF Manager Panel */
 .pdf-manager-panel {
     background: rgba(15, 15, 26, 0.99);
     border: 1px solid var(--border-color);
@@ -877,7 +865,6 @@
     transform: translateY(0);
 }
 
-/* Panel header */
 .pdf-manager-header {
     display: flex;
     align-items: center;
@@ -911,14 +898,12 @@
     background: rgba(255, 255, 255, 0.06);
 }
 
-/* Hint text */
 .pdf-manager-hint {
     font-size: 0.75rem;
     color: var(--text-muted);
     margin: 0;
 }
 
-/* PDF checkbox list */
 .pdf-manager-list {
     display: flex;
     flex-direction: column;
@@ -967,7 +952,6 @@
     color: var(--text-light);
 }
 
-/* Panel footer action buttons */
 .pdf-manager-footer {
     display: flex;
     gap: 0.6rem;
@@ -1025,7 +1009,6 @@
     border-color: #f44336;
 }
 
-/* Inline error message in panel */
 .pdf-panel-error {
     font-size: 0.75rem;
     color: #f44336;
@@ -1034,7 +1017,6 @@
     animation: fadeIn 0.2s ease;
 }
 
-/* Mobile */
 @media (max-width: 768px) {
     .pdf-manager-footer {
         flex-direction: column;
