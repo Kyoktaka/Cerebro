@@ -250,6 +250,22 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Font Awesome** - For the beautiful icons
 - **Google Fonts** - For the Inter font family
 
+# Initialize git repository
+git init
+
+# Add all files
+git add .
+
+# Commit
+git commit -m "Initial commit: Cerebro AI Study Assistant"
+
+# Add remote (replace with your repo URL)
+git remote add origin https://github.com/yourusername/cerebro.git
+
+# Push to GitHub
+git branch -M main
+git push -u origin main
+
 <div align="center">
   
 **Made with 🧠 by Team Cerebro**
