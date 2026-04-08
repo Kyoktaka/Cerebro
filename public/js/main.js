@@ -1,4 +1,4 @@
-const API_BASE_URL = 'http://localhost:8080/api';
+const API_BASE_URL = 'https://cerebro-6bzw.onrender.com';
 
 // Hamburger Menu
 const hamburger = document.querySelector('.hamburger');
