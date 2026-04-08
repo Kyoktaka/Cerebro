@@ -77,7 +77,6 @@ function getAllUsers() {
 }
 
 // AUTH ENDPOINTS
-
 app.post('/api/auth/register', (req, res) => {
     const { firstName, lastName, email, password } = req.body;
 
@@ -147,7 +146,6 @@ app.post('/api/auth/forgot-password', (req, res) => {
 });
 
 // CONVERSATION MANAGEMENT
-
 app.get('/api/conversations/:sessionId', (req, res) => {
     const session = userSessions.get(req.params.sessionId);
     if (!session || !session.user) {
@@ -209,37 +207,7 @@ app.post('/api/conversations/:sessionId/clear-pdfs', (req, res) => {
     res.json({ success: true });
 });
 
-// Save one or more system messages to a conversation (used for upload/exit events)
-app.post('/api/conversations/:sessionId/:conversationId/save-messages', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
-    if (!session || !session.user) return res.status(401).json({ error: 'Unauthorized' });
-
-    const { messages } = req.body; // array of { role, content, timestamp }
-    if (!Array.isArray(messages) || messages.length === 0) return res.status(400).json({ error: 'messages array required' });
-
-    try {
-        const user = loadUser(session.user.lastName);
-        const conversation = user.conversations?.find(c => c.id === req.params.conversationId);
-        if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
-
-        conversation.messages = conversation.messages || [];
-        for (const msg of messages) {
-            conversation.messages.push({
-                role: msg.role,
-                content: msg.content,
-                timestamp: msg.timestamp || new Date().toISOString()
-            });
-        }
-        conversation.updatedAt = new Date().toISOString();
-        saveUser(user);
-        res.json({ success: true });
-    } catch (e) {
-        console.error('save-messages error:', e);
-        res.status(500).json({ error: 'Failed to save messages' });
-    }
-});
-
-// Focus on selected PDFs — strips all others from the session context
+// Focus on selected PDFs - strips all others from the session context
 // Accepts pdfNames: string[] (array of names to keep)
 app.post('/api/conversations/:sessionId/focus-pdf', (req, res) => {
     const session = userSessions.get(req.params.sessionId);
@@ -393,7 +361,6 @@ app.delete('/api/conversations/:sessionId/:conversationId', (req, res) => {
 });
 
 // PDF UPLOAD
-
 const upload = multer({ dest: uploadsDir });
 const MAX_PDFS_PER_CONVERSATION = 10;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -491,7 +458,6 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
 });
 
 // CHAT ENDPOINT
-
 app.post('/api/chat', async (req, res) => {
     try {
         const { message, sessionId, conversationId } = req.body;
@@ -501,7 +467,7 @@ app.post('/api/chat', async (req, res) => {
             return res.status(401).json({ error: 'Session not found' });
         }
 
-        // Restore PDF context from disk if session is fresh  after re-login
+        // Restore PDF context from disk if session is fresh after re-login
         if ((!session.pdfContent || session.pdfContent.length === 0) && conversationId && session.user) {
             try {
                 const user = loadUser(session.user.lastName);
@@ -526,10 +492,9 @@ app.post('/api/chat', async (req, res) => {
                 context = context.substring(0, MAX_CONTEXT_LENGTH);
             }
 
-            // Simple, clean prompt - let Gemini handle language automatically
             const prompt = `You are Cerebro, a strict study assistant. RULES:
 1. ONLY answer using the PDF content below.
-2. If the question cannot be answered from the PDF, say: "This question is beyond the scope of your uploaded PDF/s. Please ask about the content of your PDF/s."
+2. If the question cannot be answered from the PDF, say: "I cannot answer that based on your uploaded document. Please ask about the content of your PDF."
 3. DO NOT use your own knowledge.
 4. Answer in the SAME LANGUAGE as the user's question.
 5. If the user asks for a summary, summarize the document.
@@ -596,17 +561,23 @@ YOUR ANSWER (ONLY from PDF, in user's language):`;
     }
 });
 
+// ============================================
 // HEALTH CHECK
+// ============================================
 
 app.get('/api/health', (req, res) => {
     res.json({ status: 'OK', message: 'Cerebro backend is running' });
 });
 
+// ============================================
 // START SERVER
+// ============================================
 
 app.listen(PORT, () => {
+    console.log(`\n========================================`);
     console.log(`  CEREBRO BACKEND RUNNING`);
     console.log(`  Port: ${PORT}`);
     console.log(`  API: http://localhost:${PORT}/api`);
     console.log(`  Gemini AI: Ready`);
+    console.log(`========================================\n`);
 });
