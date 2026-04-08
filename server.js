@@ -610,8 +610,3 @@ app.listen(PORT, () => {
     console.log(`  API: http://localhost:${PORT}/api`);
     console.log(`  Gemini AI: Ready`);
 });
-
-
-//1st API key AIzaSyAt3w2-sL7g4PF6rYsdk3paKue1tr09X1w
-//2nd API key AIzaSyBdr9Kpq01iWRHzaupIQvvmhOGHd-zc8dE
-//3rd API key AIzaSyDapj8TcbFeDpCwBx5nJZ-6PxaEKW6sPX8
