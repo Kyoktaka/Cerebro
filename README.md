@@ -10,7 +10,7 @@
 
 **Your intelligent AI study assistant powered by Google Gemini**
 
-[Features](#features) • [Demo](#demo) • [Installation](#installation) • [Usage](#usage) • [Tech Stack](#tech-stack) • [Team](#team)
+[Features](##features) • [Demo](##demo) • [Installation](##installation) • [Usage](##usage) • [Tech Stack](##tech-stack) • [Team](##team)
 
 </div>
 
