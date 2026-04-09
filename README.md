@@ -1,4 +1,4 @@
-# Cerebro: A Web-Based Interactive Chatbot for PDF-Based Study Assistance
+# Cerebro: A PDF Chatbot Reviewer 
 
 <div align="center">
 
