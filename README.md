@@ -1,4 +1,4 @@
-# Cerebro - AI Study Assistant
+# Cerebro: A Web-Based Interactive Chatbot for PDF-Based Study Assistance
 
 <div align="center">
 
