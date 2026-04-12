@@ -1,4 +1,6 @@
-const API_BASE_URL = window.location.origin + '/api';
+const API_BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://localhost:8080/api'
+    : '/api';
 const sessionId = localStorage.getItem('cerebro_session');
 const userData = JSON.parse(localStorage.getItem('cerebro_user') || '{}');
 
@@ -229,28 +231,27 @@ function openPDFManager() {
     });
 
     document.getElementById('pdfSelectAll').addEventListener('click', (e) => {
-        e.stopPropagation();
-        const checks = panel.querySelectorAll('.pdf-focus-check');
-        const allChecked = [...checks].every(c => c.checked);
-        checks.forEach(c => c.checked = !allChecked);
-        e.currentTarget.innerHTML = allChecked
-            ? '<i class="fas fa-check-double"></i> Select All'
-            : '<i class="fas fa-times"></i> Deselect All';
-    });
+    e.stopPropagation();
+    const checks = panel.querySelectorAll('.pdf-focus-check');
+    const allChecked = [...checks].every(c => c.checked);
+    if (allChecked) {
+        checks.forEach(c => c.checked = false);
+        e.currentTarget.innerHTML = '<i class="fas fa-check-double"></i> Select All';
+    } else {
+        checks.forEach(c => c.checked = true);
+        e.currentTarget.innerHTML = '<i class="fas fa-times"></i> Deselect All';
+    }
+});
 
     document.getElementById('pdfApplyFocus').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const selected = getSelectedNames(panel);
-        if (selected.length === 0) {
-            showPanelError(panel, 'Check at least one PDF to focus on.');
-            return;
-        }
-        if (selected.length === currentPDFNames.length) {
-            closePDFManager();
-            return;
-        }
-        await applyFocus(selected);
-    });
+    e.stopPropagation();
+    const selected = getSelectedNames(panel);
+    if (selected.length === 0) {
+        showPanelError(panel, 'Check at least one PDF to focus on.');
+        return;
+    }
+    await applyFocus(selected);
+});
 
     document.getElementById('pdfDeleteSelected').addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -296,22 +297,18 @@ document.addEventListener('click', (e) => {
 
 async function applyFocus(namesToFocus) {
     closePDFManager();
-
     activePDFNames = [...namesToFocus];
-    
-    const waitingPDFs = currentPDFNames.filter(name => !namesToFocus.includes(name));
-
     let focusedContent = '';
-    const allContent = sessionStorage.getItem('pdfFullContent') || '';
+    const fullContent = sessionStorage.getItem('pdfFullContent') || '';
 
     for (const pdfName of activePDFNames) {
         const marker = `--- ${pdfName} ---`;
-        const markerIndex = allContent.indexOf(marker);
+        const markerIndex = fullContent.indexOf(marker);
         if (markerIndex !== -1) {
-            const nextMarkerIndex = allContent.indexOf('\n\n--- ', markerIndex + marker.length);
+            const nextMarkerIndex = fullContent.indexOf('\n\n--- ', markerIndex + marker.length);
             const section = nextMarkerIndex !== -1
-                ? allContent.substring(markerIndex, nextMarkerIndex)
-                : allContent.substring(markerIndex);
+                ? fullContent.substring(markerIndex, nextMarkerIndex)
+                : fullContent.substring(markerIndex);
             focusedContent += (focusedContent ? '\n\n' : '') + section;
         }
     }
@@ -332,23 +329,29 @@ async function applyFocus(namesToFocus) {
     sessionStorage.setItem('pdfActiveContent', focusedContent);
     
     currentPDFName = activePDFNames[0] || '';
+    currentPDFCount = currentPDFNames.length;
     
     renderPDFChips();
 
     if (pdfCounter && currentPDFNames.length > 1) {
         pdfCounter.textContent = `${activePDFNames.length}/${currentPDFNames.length} focused`;
     }
-
+    const waitingCount = currentPDFNames.length - activePDFNames.length;
     let message = `Focus applied to ${activePDFNames.length} PDF(s)`;
-    if (waitingPDFs.length > 0) {
-        message += `\n\n${waitingPDFs.length} PDF(s) moved to waiting list:\n${waitingPDFs.map(n => `- ${n}`).join('\n')}`;
+    
+    if (waitingCount > 0) {
+        const waitingPDFs = currentPDFNames.filter(n => !activePDFNames.includes(n));
+        message += `\n\n${waitingCount} PDF(s) in waiting list:\n${waitingPDFs.map(n => `- ${n}`).join('\n')}`;
         message += `\n\nCheck them in the manager to add back to focus.`;
+    } else {
+        message += `\n\nAll ${currentPDFNames.length} PDF(s) are now in focus.`;
     }
     message += `\n\nAsk me anything about your focused documents!`;
 
     addMessageToUI(message, 'bot');
     currentMessages.push({ role: 'assistant', content: message, timestamp: new Date().toISOString() });
 }
+
 
 async function deleteSelectedPDFs(namesToDelete) {
     const remaining = currentPDFNames.filter(n => !namesToDelete.includes(n));
