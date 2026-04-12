@@ -11,19 +11,17 @@ const pdfParse = require('pdf-parse');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname)));
 
-// Create directories
+// Create Folders
 const usersDir = path.join(__dirname, 'users');
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(usersDir)) fs.mkdirSync(usersDir);
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
 
-// Gemini Setup
 const API_KEY = process.env.GEMINI_API_KEY;
 if (!API_KEY) {
     console.error('GEMINI_API_KEY not found in .env');
@@ -34,7 +32,6 @@ console.log('Gemini API Key loaded');
 const genAI = new GoogleGenerativeAI(API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
-// Test API
 async function testAPI() {
     try {
         const result = await model.generateContent('Say "Hello! Cerebro is ready!"');
@@ -45,12 +42,10 @@ async function testAPI() {
 }
 testAPI();
 
-// User sessions
 const userSessions = new Map();
 
-// User functions
 function getUserFilePath(lastName) {
-    return path.join(usersDir, `${lastName.replace(/[^a-zA-Z0-9]/g, '')}.json`);
+    return path.join(usersDir, `${lastName.replace(/[^a-zA-Z0-9.]/g, '')}.json`);
 }
 
 function loadUser(lastName) {
@@ -81,7 +76,12 @@ app.post('/api/auth/register', (req, res) => {
     const { firstName, lastName, email, password } = req.body;
 
     if (loadUser(lastName)) {
-        return res.status(400).json({ error: 'Username already exists' });
+        return res.status(400).json({ error: 'Username already exists. Try adding your middle initial (e.g., ' + lastName + 'J)' });
+    }
+    const allUsers = getAllUsers();
+    const emailExists = allUsers.some(user => user.email === email);
+    if (emailExists) {
+        return res.status(400).json({ error: 'Email already registered. Please use a different email.' });
     }
 
     const user = {
@@ -94,8 +94,13 @@ app.post('/api/auth/register', (req, res) => {
         conversations: []
     };
 
-    saveUser(user);
-    res.json({ success: true });
+    try {
+        saveUser(user);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Save user error:', error);
+        res.status(500).json({ error: 'Failed to save user data' });
+    }
 });
 
 app.post('/api/auth/login', (req, res) => {
@@ -192,7 +197,6 @@ app.post('/api/conversations/:sessionId/clear-pdfs', (req, res) => {
         session.pdfNames = [];
         session.uploadedPDFs = [];
 
-        // Also clear from disk so it doesn't restore on next load
         const convId = req.body.conversationId;
         if (convId && session.user) {
             const user = loadUser(session.user.lastName);
@@ -207,8 +211,7 @@ app.post('/api/conversations/:sessionId/clear-pdfs', (req, res) => {
     res.json({ success: true });
 });
 
-// Focus on selected PDFs - strips all others from the session context
-// Accepts pdfNames: string[] (array of names to keep)
+// Focus on selected PDFs 
 app.post('/api/conversations/:sessionId/focus-pdf', (req, res) => {
     const session = userSessions.get(req.params.sessionId);
     if (!session) return res.status(401).json({ error: 'Session not found' });
@@ -218,7 +221,6 @@ app.post('/api/conversations/:sessionId/focus-pdf', (req, res) => {
 
     const allContent = session.pdfContent || '';
 
-    // Extract and concatenate content sections for each kept PDF
     let focusedContent = '';
     for (const pdfName of namesToKeep) {
         const marker = `--- ${pdfName} ---`;
@@ -236,7 +238,6 @@ app.post('/api/conversations/:sessionId/focus-pdf', (req, res) => {
     session.pdfNames = namesToKeep;
     session.uploadedPDFs = namesToKeep;
 
-    // Persist to disk
     if (conversationId && session.user) {
         try {
             const user = loadUser(session.user.lastName);
@@ -280,7 +281,6 @@ app.post('/api/conversations/:sessionId/delete-pdf', (req, res) => {
     session.pdfNames = updatedNames;
     session.uploadedPDFs = updatedNames;
 
-    // Persist to disk
     if (conversationId && session.user) {
         try {
             const user = loadUser(session.user.lastName);
@@ -313,14 +313,11 @@ app.get('/api/conversations/:sessionId/:conversationId', (req, res) => {
     if (!conversation) {
         return res.json({ messages: [] });
     }
-
-    // Restore PDF context into session if this conversation had PDFs
     if (conversation.pdfContent) {
         session.pdfContent = conversation.pdfContent;
         session.pdfNames = conversation.pdfNames || [];
         session.uploadedPDFs = conversation.pdfNames || [];
     } else {
-        // Clear PDF context when switching to a non-PDF conversation
         session.pdfContent = '';
         session.pdfNames = [];
         session.uploadedPDFs = [];
@@ -425,7 +422,6 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
         session.pdfNames = fileNames;
         session.uploadedPDFs = fileNames;
 
-        // Persist PDF metadata + content to the conversation on disk
         const convId = req.body.conversationId;
         if (convId && session.user) {
             const user = loadUser(session.user.lastName);
@@ -466,8 +462,6 @@ app.post('/api/chat', async (req, res) => {
         if (!session) {
             return res.status(401).json({ error: 'Session not found' });
         }
-
-        // Restore PDF context from disk if session is fresh after re-login
         if ((!session.pdfContent || session.pdfContent.length === 0) && conversationId && session.user) {
             try {
                 const user = loadUser(session.user.lastName);
@@ -486,7 +480,6 @@ app.post('/api/chat', async (req, res) => {
         let answer = '';
 
         if (hasPDF) {
-            // Study Mode - Only answer from PDF
             let context = session.pdfContent;
             if (context.length > MAX_CONTEXT_LENGTH) {
                 context = context.substring(0, MAX_CONTEXT_LENGTH);
@@ -509,18 +502,15 @@ YOUR ANSWER (ONLY from PDF, in user's language):`;
             const result = await model.generateContent(prompt);
             answer = result.response.text();
 
-            // Fallback if answer is empty
             if (!answer || answer.trim().length === 0) {
                 answer = "I cannot answer that based on your uploaded document. Please ask a question about the content of your PDF.";
             }
         } else {
-            // Normal Mode - Free chat
             const prompt = `You are Cerebro, a friendly AI assistant. Answer concisely and helpfully. Respond in the SAME LANGUAGE as the user's question.\n\nUser: ${message}\n\nAssistant:`;
             const result = await model.generateContent(prompt);
             answer = result.response.text();
         }
 
-        // Save to conversation
         if (conversationId && session.user) {
             const user = loadUser(session.user.lastName);
             const conversation = user.conversations?.find(c => c.id === conversationId);
@@ -561,23 +551,12 @@ YOUR ANSWER (ONLY from PDF, in user's language):`;
     }
 });
 
-// ============================================
-// HEALTH CHECK
-// ============================================
-
 app.get('/api/health', (req, res) => {
     res.json({ status: 'OK', message: 'Cerebro backend is running' });
 });
 
-// ============================================
 // START SERVER
-// ============================================
-
 app.listen(PORT, () => {
-    console.log(`\n========================================`);
     console.log(`  CEREBRO BACKEND RUNNING`);
-    console.log(`  Port: ${PORT}`);
-    console.log(`  API: http://localhost:${PORT}/api`);
     console.log(`  Gemini AI: Ready`);
-    console.log(`========================================\n`);
 });
