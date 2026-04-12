@@ -809,42 +809,41 @@ if (fileInput) {
         for (let file of files) formData.append('files', file);
         formData.append('sessionId', sessionId);
         formData.append('conversationId', currentConversationId);
-        
+
         try {
             const response = await fetch(`${API_BASE_URL}/upload`, {
                 method: 'POST',
                 body: formData
             });
-
-        const result = await response.json();
+            const result = await response.json();
 
             if (spinnerEl && spinnerEl.parentNode) spinnerEl.remove();
 
-                if (result.success) {
-                    const allPDFNames = result.pdfNames || fileNames;
-                    sessionStorage.setItem('pdfFullContent', result.fullContent || '');
-                    let successMessage = `PDF Upload Complete!\n\n`;
-    
-                if (result.duplicatesSkipped > 0) {
-                    successMessage += `⚠️ ${result.message}\n\n`;
-              } else {
-                    successMessage += `Files uploaded:\n${fileNames.map(f => `- ${f}`).join('\n')}\n\n`;
-            }
-    
-                    successMessage += `Stats: ${result.pdfCount}/${result.maxPDFs} PDFs | ${Math.round(result.charCount / 1000)}K characters\n\n`;
-                    successMessage += `PDF Mode active. Click the PDF chips above to manage which documents to focus on!`;
+            if (result.success) {
+                const allPDFNames = result.pdfNames || fileNames;
+                sessionStorage.setItem('pdfFullContent', result.fullContent || '');
+                let successMessage = `PDF Upload Complete!\n\n`;
+                successMessage += `Files uploaded:\n${fileNames.map(f => `- ${f}`).join('\n')}\n\n`;
+                successMessage += `Stats: ${result.pdfCount}/${result.maxPDFs} PDFs | ${Math.round(result.charCount / 1000)}K characters\n\n`;
+                successMessage += `PDF Mode active. Click the PDF chips above to manage which documents to focus on!`;
                 if (result.truncated) successMessage += `\n\nNote: Some content was truncated due to length limits.`;
 
-    addMessageToUI(successMessage, 'bot');
-    currentMessages.push({ role: 'assistant', content: successMessage, timestamp: new Date().toISOString() });
-    sessionStorage.setItem('pdfFullContent', result.fullContent || '');
-    sessionStorage.setItem('pdfActiveContent', result.fullContent || '');
-    enablePDFMode(fileNames[0], result.pdfCount || 1, allPDFNames);
-} else {
-    const errMsg = `Upload failed\n\n${result.error || 'Please try again.'}`;
-    addMessageToUI(errMsg, 'bot');
-    currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
-}
+                addMessageToUI(successMessage, 'bot');
+                currentMessages.push({ role: 'assistant', content: successMessage, timestamp: new Date().toISOString() });
+                sessionStorage.setItem('pdfFullContent', result.fullContent || '');
+                sessionStorage.setItem('pdfActiveContent', result.fullContent || '');
+                enablePDFMode(fileNames[0], result.pdfCount || 1, allPDFNames);
+            } else {
+                const errMsg = `Upload failed\n\n${result.error || 'Please try again.'}`;
+                addMessageToUI(errMsg, 'bot');
+                currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
+            }
+        } catch (error) {
+            if (spinnerEl && spinnerEl.parentNode) spinnerEl.remove();
+            const errMsg = 'Failed to upload PDFs\n\nPlease check your connection and make sure the server is running.';
+            addMessageToUI(errMsg, 'bot');
+            currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
+        }
 
         isUploading = false;
         fileInput.value = '';
@@ -855,6 +854,7 @@ if (fileInput) {
 
 
 // UTILITY FUNCTIONS
+
 function formatMessage(text) {
     if (!text) return '';
     return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
