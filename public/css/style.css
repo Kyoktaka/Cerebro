@@ -662,3 +662,37 @@ body.menu-open {
         font-size: 0.8rem;
     }
 }
+
+.username-note {
+    margin: -0.5rem 0 1rem 0;
+    padding: 0.3rem 0.5rem;
+    background: rgba(255, 215, 0, 0.08);
+    border-radius: 8px;
+    border-left: 3px solid var(--secondary-color);
+}
+
+.username-note small {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+}
+
+.username-note small i {
+    color: var(--secondary-color);
+    font-size: 0.7rem;
+}
+
+@media (max-width: 768px) {
+    .username-note {
+        margin: -0.3rem 0 0.8rem 0;
+        padding: 0.3rem 0.5rem;
+    }
+    
+    .username-note small {
+        font-size: 0.65rem;
+        line-height: 1.4;
+    }
+}
