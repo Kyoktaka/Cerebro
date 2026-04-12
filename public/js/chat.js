@@ -1,6 +1,4 @@
-const API_BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    ? 'http://localhost:8080/api'
-    : '/api';
+const API_BASE_URL = window.location.origin + '/api';
 const sessionId = localStorage.getItem('cerebro_session');
 const userData = JSON.parse(localStorage.getItem('cerebro_user') || '{}');
 
