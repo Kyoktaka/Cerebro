@@ -809,7 +809,7 @@ if (fileInput) {
         for (let file of files) formData.append('files', file);
         formData.append('sessionId', sessionId);
         formData.append('conversationId', currentConversationId);
-
+        
         try {
             const response = await fetch(`${API_BASE_URL}/upload`, {
                 method: 'POST',
