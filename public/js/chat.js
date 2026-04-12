@@ -1,4 +1,6 @@
-const API_BASE_URL = window.location.origin + '/api';
+const API_BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    ? 'http://localhost:8080/api'
+    : '/api';
 const sessionId = localStorage.getItem('cerebro_session');
 const userData = JSON.parse(localStorage.getItem('cerebro_user') || '{}');
 
@@ -9,9 +11,10 @@ let isPDFMode = false;
 let currentPDFName = '';
 let currentPDFCount = 0;
 let currentPDFNames = [];
+let activePDFNames = [];
 let isUploading = false;
 
-// DOM Elements
+
 const sidebar = document.getElementById('chatSidebar');
 const menuToggle = document.getElementById('menuToggle');
 const closeSidebarBtn = document.getElementById('closeSidebarBtn');
@@ -33,15 +36,11 @@ const userName = document.getElementById('userName');
 const logoutBtn = document.getElementById('logoutBtn');
 const deleteAccountBtn = document.getElementById('deleteAccountBtn');
 
-// Check login
 if (!sessionId) {
     window.location.href = 'login.html';
 }
-
-// Set user name
 if (userName) userName.textContent = userData.firstName || userData.lastName;
 
-// SIDEBAR-ONLY REFRESH (never reloads conversation)
 async function refreshSidebarOnly() {
     try {
         const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}`);
@@ -60,6 +59,7 @@ function enablePDFMode(pdfName, pdfCount = 1, pdfNames = []) {
     currentPDFName = pdfName;
     currentPDFCount = pdfCount;
     currentPDFNames = pdfNames.length > 0 ? pdfNames : (pdfName ? [pdfName] : []);
+    activePDFNames = [...currentPDFNames];
 
     if (pdfModeBadge) pdfModeBadge.style.display = 'flex';
     if (studyModeBar) studyModeBar.style.display = 'flex';
@@ -67,8 +67,8 @@ function enablePDFMode(pdfName, pdfCount = 1, pdfNames = []) {
     renderPDFChips();
 
     if (pdfCounter) {
-        if (pdfCount > 1) {
-            pdfCounter.textContent = `${pdfCount}/10`;
+        if (currentPDFNames.length > 1) {
+            pdfCounter.textContent = `${activePDFNames.length}/${currentPDFNames.length} focused`;
             pdfCounter.style.display = 'inline-block';
         } else {
             pdfCounter.style.display = 'none';
@@ -83,6 +83,7 @@ function disablePDFMode() {
     currentPDFName = '';
     currentPDFCount = 0;
     currentPDFNames = [];
+    activePDFNames = [];
 
     if (pdfModeBadge) pdfModeBadge.style.display = 'none';
     if (studyModeBar) studyModeBar.style.display = 'none';
@@ -92,39 +93,73 @@ function disablePDFMode() {
 }
 
 
-// PDF Manage
 function renderPDFChips() {
     if (!pdfFileNameSpan) return;
+    
     pdfFileNameSpan.innerHTML = '';
-
+    
     if (currentPDFNames.length === 0) {
-        pdfFileNameSpan.textContent = currentPDFName || '';
-        return;
+        if (currentPDFName) {
+            const chip = document.createElement('span');
+            chip.className = 'pdf-chip';
+            chip.title = currentPDFName;
+            chip.innerHTML = `<i class="fas fa-file-pdf"></i> ${truncateName(currentPDFName, 25)}`;
+            chip.addEventListener('click', () => openPDFManager());
+            pdfFileNameSpan.appendChild(chip);
+        }
+    } else {
+        const maxVisible = window.innerWidth <= 480 ? 2 : (window.innerWidth <= 768 ? 3 : 5);
+        const visiblePDFs = activePDFNames.slice(0, maxVisible);
+        const remainingActive = activePDFNames.length - visiblePDFs.length;
+        
+        visiblePDFs.forEach((name) => {
+            const chip = document.createElement('span');
+            chip.className = 'pdf-chip';
+            chip.title = name;
+            chip.innerHTML = `<i class="fas fa-file-pdf"></i> ${truncateName(name, 20)}`;
+            chip.addEventListener('click', () => openPDFManager());
+            pdfFileNameSpan.appendChild(chip);
+        });
+        
+        if (remainingActive > 0) {
+            const moreChip = document.createElement('span');
+            moreChip.className = 'pdf-chip';
+            moreChip.innerHTML = `<i class="fas fa-ellipsis-h"></i> +${remainingActive}`;
+            moreChip.addEventListener('click', () => openPDFManager());
+            pdfFileNameSpan.appendChild(moreChip);
+        }
+        
+        const waitingCount = currentPDFNames.length - activePDFNames.length;
+        if (waitingCount > 0) {
+            const waitingChip = document.createElement('span');
+            waitingChip.className = 'pdf-chip';
+            waitingChip.style.opacity = '0.6';
+            waitingChip.style.borderColor = 'var(--text-muted)';
+            waitingChip.title = 'PDFs in waiting list (not focused)';
+            waitingChip.innerHTML = `<i class="fas fa-clock"></i> +${waitingCount} waiting`;
+            waitingChip.addEventListener('click', () => openPDFManager());
+            pdfFileNameSpan.appendChild(waitingChip);
+        }
+        
+        if (currentPDFNames.length > 1) {
+            const manageBtn = document.createElement('span');
+            manageBtn.className = 'pdf-manage-btn';
+            manageBtn.innerHTML = `<i class="fas fa-sliders-h"></i> Manage`;
+            manageBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openPDFManager();
+            });
+            pdfFileNameSpan.appendChild(manageBtn);
+        }
     }
-
-    currentPDFNames.forEach((name) => {
-        const chip = document.createElement('span');
-        chip.className = 'pdf-chip';
-        chip.title = name;
-        chip.dataset.name = name;
-        chip.innerHTML = `<i class="fas fa-file-pdf"></i> ${truncateName(name, 20)}`;
-        chip.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openPDFManager();
-        });
-        pdfFileNameSpan.appendChild(chip);
-    });
-
-    // Add a "Manage" button after the chips if more than 1
-    if (currentPDFNames.length > 1) {
-        const manageBtn = document.createElement('span');
-        manageBtn.className = 'pdf-manage-btn';
-        manageBtn.innerHTML = `<i class="fas fa-sliders-h"></i> Manage`;
-        manageBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openPDFManager();
-        });
-        pdfFileNameSpan.appendChild(manageBtn);
+    
+    if (pdfCounter) {
+        if (currentPDFNames.length > 1) {
+            pdfCounter.textContent = `${activePDFNames.length}/${currentPDFNames.length} focused`;
+            pdfCounter.style.display = 'inline-block';
+        } else {
+            pdfCounter.style.display = 'none';
+        }
     }
 }
 
@@ -138,11 +173,10 @@ function truncateName(name, max) {
     return name.substring(0, max) + '...';
 }
 
-// PDF MANAGER PANEL (multi-select)
+// PDF MANAGER PANEL
 let activePDFManagerPanel = null;
 
 function openPDFManager() {
-    // Toggle: if panel is already open, close it
     if (activePDFManagerPanel) {
         closePDFManager();
         return;
@@ -152,21 +186,25 @@ function openPDFManager() {
     panel.id = 'pdfManagerPanel';
     panel.className = 'pdf-manager-panel';
 
-    const listItems = currentPDFNames.map((name) => `
-        <label class="pdf-manager-item" title="${escapeHtml(name)}">
-            <input type="checkbox" class="pdf-focus-check" data-name="${escapeHtml(name)}" checked>
-            <i class="fas fa-file-pdf"></i>
-            <span class="pdf-item-name">${escapeHtml(truncateName(name, 30))}</span>
-        </label>
-    `).join('');
+    const listItems = currentPDFNames.map((name) => {
+        const isActive = activePDFNames.includes(name);
+        return `
+            <label class="pdf-manager-item" title="${escapeHtml(name)}">
+                <input type="checkbox" class="pdf-focus-check" data-name="${escapeHtml(name)}" ${isActive ? 'checked' : ''}>
+                <i class="fas fa-file-pdf"></i>
+                <span class="pdf-item-name">${escapeHtml(truncateName(name, 30))}</span>
+                ${!isActive ? '<span style="font-size:0.65rem; color:var(--text-muted); margin-left:auto;">(waiting)</span>' : ''}
+            </label>
+        `;
+    }).join('');
 
     panel.innerHTML = `
         <div class="pdf-manager-header">
             <i class="fas fa-layer-group"></i>
-            <span class="pdf-manager-title">Manage PDFs (${currentPDFNames.length}/10)</span>
+            <span class="pdf-manager-title">Manage PDFs (${activePDFNames.length}/${currentPDFNames.length} focused)</span>
             <button class="pdf-manager-close" id="pdfManagerClose"><i class="fas fa-times"></i></button>
         </div>
-        <p class="pdf-manager-hint">Checked = AI will focus on it | Unchecked = excluded</p>
+        <p class="pdf-manager-hint">Checked = AI will focus on it | Unchecked = waiting list (kept but not used)</p>
         <div class="pdf-manager-list">
             ${listItems}
         </div>
@@ -210,7 +248,6 @@ function openPDFManager() {
             return;
         }
         if (selected.length === currentPDFNames.length) {
-            // All selected = no change, just close
             closePDFManager();
             return;
         }
@@ -250,7 +287,6 @@ function closePDFManager() {
     }
 }
 
-// Close panel when clicking outside
 document.addEventListener('click', (e) => {
     if (activePDFManagerPanel &&
         !activePDFManagerPanel.contains(e.target) &&
@@ -260,8 +296,27 @@ document.addEventListener('click', (e) => {
     }
 });
 
-async function applyFocus(namesToKeep) {
+async function applyFocus(namesToFocus) {
     closePDFManager();
+
+    activePDFNames = [...namesToFocus];
+    
+    const waitingPDFs = currentPDFNames.filter(name => !namesToFocus.includes(name));
+
+    let focusedContent = '';
+    const allContent = sessionStorage.getItem('pdfFullContent') || '';
+
+    for (const pdfName of activePDFNames) {
+        const marker = `--- ${pdfName} ---`;
+        const markerIndex = allContent.indexOf(marker);
+        if (markerIndex !== -1) {
+            const nextMarkerIndex = allContent.indexOf('\n\n--- ', markerIndex + marker.length);
+            const section = nextMarkerIndex !== -1
+                ? allContent.substring(markerIndex, nextMarkerIndex)
+                : allContent.substring(markerIndex);
+            focusedContent += (focusedContent ? '\n\n' : '') + section;
+        }
+    }
 
     try {
         await fetch(`${API_BASE_URL}/conversations/${sessionId}/focus-pdf`, {
@@ -269,22 +324,32 @@ async function applyFocus(namesToKeep) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 conversationId: currentConversationId,
-                pdfNames: namesToKeep
+                pdfNames: activePDFNames
             })
         });
     } catch (error) {
         console.error('Focus PDF error:', error);
     }
 
-    currentPDFNames = namesToKeep;
-    currentPDFCount = namesToKeep.length;
-    currentPDFName = namesToKeep[0];
-    enablePDFMode(currentPDFName, currentPDFCount, currentPDFNames);
+    sessionStorage.setItem('pdfActiveContent', focusedContent);
+    
+    currentPDFName = activePDFNames[0] || '';
+    
+    renderPDFChips();
 
-    const listStr = namesToKeep.map(n => `- ${n}`).join('\n');
-    const msg = `Focus applied to ${namesToKeep.length} PDF(s)\n\n${listStr}\n\nAsk me anything about these documents!`;
-    addMessageToUI(msg, 'bot');
-    currentMessages.push({ role: 'assistant', content: msg, timestamp: new Date().toISOString() });
+    if (pdfCounter && currentPDFNames.length > 1) {
+        pdfCounter.textContent = `${activePDFNames.length}/${currentPDFNames.length} focused`;
+    }
+
+    let message = `Focus applied to ${activePDFNames.length} PDF(s)`;
+    if (waitingPDFs.length > 0) {
+        message += `\n\n${waitingPDFs.length} PDF(s) moved to waiting list:\n${waitingPDFs.map(n => `- ${n}`).join('\n')}`;
+        message += `\n\nCheck them in the manager to add back to focus.`;
+    }
+    message += `\n\nAsk me anything about your focused documents!`;
+
+    addMessageToUI(message, 'bot');
+    currentMessages.push({ role: 'assistant', content: message, timestamp: new Date().toISOString() });
 }
 
 async function deleteSelectedPDFs(namesToDelete) {
@@ -348,7 +413,6 @@ if (exitStudyModeBtn) {
 }
 
 
-// SIDEBAR FUNCTIONS
 let isSidebarCollapsed = false;
 
 function loadSidebarState() {
@@ -681,7 +745,6 @@ async function sendMessage() {
         if (data.answer) {
             addMessageToUI(data.answer, 'bot');
             currentMessages.push({ role: 'assistant', content: data.answer, timestamp: new Date().toISOString() });
-            // Only refresh sidebar, NEVER reload the conversation from server
             await refreshSidebarOnly();
         } else {
             addMessageToUI('Sorry, I received an unexpected response. Please try again.', 'bot');
@@ -723,12 +786,9 @@ if (fileInput) {
         isUploading = true;
         const fileNames = Array.from(files).map(f => f.name);
 
-        // Save upload message into currentMessages immediately
         const uploadMsg = `Uploading ${fileNames.length} file(s)...\n\n${fileNames.map(f => `- ${f}`).join('\n')}`;
         addMessageToUI(uploadMsg, 'user');
         currentMessages.push({ role: 'user', content: uploadMsg, timestamp: new Date().toISOString() });
-
-        // Check file sizes
         for (const file of files) {
             if (file.size > 10 * 1024 * 1024) {
                 const errMsg = `${file.name} exceeds 10MB limit`;
@@ -740,11 +800,9 @@ if (fileInput) {
             }
         }
 
-        // Add spinner to currentMessages so it survives any re-render
         const processingMsg = { role: 'assistant', content: 'Processing PDF(s)... Extracting text...', _isProcessing: true, timestamp: new Date().toISOString() };
-        currentMessages.push(processingMsg);
-        const processingIndex = currentMessages.length - 1;
-        addMessageToUI(processingMsg.content, 'assistant');
+        addMessageToUI(processingMsg.content, 'assistant', null, true);
+        const spinnerEl = chatMessages.lastElementChild;
 
         const formData = new FormData();
         for (let file of files) formData.append('files', file);
@@ -758,22 +816,21 @@ if (fileInput) {
             });
             const result = await response.json();
 
-            // Remove the processing placeholder from currentMessages
-            currentMessages.splice(processingIndex, 1);
-            renderCurrentConversation();
+            if (spinnerEl && spinnerEl.parentNode) spinnerEl.remove();
 
             if (result.success) {
                 const allPDFNames = result.pdfNames || fileNames;
+                sessionStorage.setItem('pdfFullContent', result.fullContent || '');
                 let successMessage = `PDF Upload Complete!\n\n`;
                 successMessage += `Files uploaded:\n${fileNames.map(f => `- ${f}`).join('\n')}\n\n`;
                 successMessage += `Stats: ${result.pdfCount}/${result.maxPDFs} PDFs | ${Math.round(result.charCount / 1000)}K characters\n\n`;
                 successMessage += `PDF Mode active. Click the PDF chips above to manage which documents to focus on!`;
                 if (result.truncated) successMessage += `\n\nNote: Some content was truncated due to length limits.`;
 
-                // Save success message to currentMessages so it persists
                 addMessageToUI(successMessage, 'bot');
                 currentMessages.push({ role: 'assistant', content: successMessage, timestamp: new Date().toISOString() });
-
+                sessionStorage.setItem('pdfFullContent', result.fullContent || '');
+                sessionStorage.setItem('pdfActiveContent', result.fullContent || '');
                 enablePDFMode(fileNames[0], result.pdfCount || 1, allPDFNames);
             } else {
                 const errMsg = `Upload failed\n\n${result.error || 'Please try again.'}`;
@@ -781,10 +838,8 @@ if (fileInput) {
                 currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
             }
         } catch (error) {
-            // Remove the processing placeholder from currentMessages
-            currentMessages.splice(processingIndex, 1);
-            renderCurrentConversation();
-            const errMsg = 'Failed to upload PDFs\n\nPlease check your connection.';
+            if (spinnerEl && spinnerEl.parentNode) spinnerEl.remove();
+            const errMsg = 'Failed to upload PDFs\n\nPlease check your connection and make sure the server is running.';
             addMessageToUI(errMsg, 'bot');
             currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
         }
@@ -792,7 +847,6 @@ if (fileInput) {
         isUploading = false;
         fileInput.value = '';
 
-        // Only refresh sidebar - never reload conversation
         await refreshSidebarOnly();
     });
 }
@@ -876,8 +930,16 @@ if (deleteAccountBtn) {
     });
 }
 
+let resizeTimeout;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+        if (isPDFMode && currentPDFNames.length > 0) {
+            renderPDFChips();
+        }
+    }, 250);
+});
 
-// INITIALIZE
 loadConversations();
 
 window.loadConversation = loadConversation;
