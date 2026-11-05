@@ -2,7 +2,7 @@ const http = require('node:http');
 
 const requests = [];
 const embedRequests = [];
-const models = ['llama3.2:latest', 'nomic-embed-text:latest', 'mxbai-embed-large:latest'];
+const models = ['llama3.2:latest', 'qwen2.5-coder:3b', 'nomic-embed-text:latest', 'mxbai-embed-large:latest'];
 
 async function readJson(req) {
     let body = '';
@@ -29,7 +29,7 @@ const server = http.createServer(async (req, res) => {
             res.writeHead(404);
             return res.end(JSON.stringify({ error: 'model not found' }));
         }
-        return res.end(JSON.stringify({ capabilities: name.startsWith('llama3.2') ? ['completion'] : ['embedding'] }));
+        return res.end(JSON.stringify({ capabilities: name.startsWith('llama3.2') || name.startsWith('qwen2.5-coder') ? ['completion'] : ['embedding'] }));
     }
     if (req.url === '/api/embed') {
         embedRequests.push(body);

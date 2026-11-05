@@ -154,7 +154,7 @@ async function ensurePdfIndex(session, conversationId, models) {
         session.pdfIndex = storedIndex;
         return storedIndex;
     }
-    installedModel(models, OLLAMA_EMBED_MODEL, 'embedding');
+    installedModel(models, OLLAMA_EMBED_MODEL);
     const documents = parsePdfContent(session.pdfContent, session.pdfNames);
     const index = { embeddingModel: OLLAMA_EMBED_MODEL, chunks: await indexDocuments(documents) };
     saveIndex(session.user, conversationId, index);
@@ -595,7 +595,7 @@ app.post('/api/upload', (req, res, next) => {
         }
 
         const models = await listModels();
-        const embeddingModel = installedModel(models, OLLAMA_EMBED_MODEL, 'embedding');
+        const embeddingModel = installedModel(models, OLLAMA_EMBED_MODEL);
         await requireCapability(embeddingModel, 'embedding');
         const storedIndex = state.pdfIndex || loadIndex(session.user, conversationId);
         const existingChunks = indexCoversDocuments(storedIndex, state.pdfNames)
@@ -709,7 +709,7 @@ app.post('/api/chat', async (req, res) => {
         let messages;
 
         if (hasPDF) {
-            const embeddingModel = installedModel(models, OLLAMA_EMBED_MODEL, 'embedding');
+            const embeddingModel = installedModel(models, OLLAMA_EMBED_MODEL);
             await requireCapability(embeddingModel, 'embedding');
             const index = await ensurePdfIndex(pdfContext, conversationId, models);
             const [questionVector] = await embedTexts([message], OLLAMA_EMBED_MODEL);

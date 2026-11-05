@@ -1,10 +1,12 @@
 # Cerebro design direction
 
-Reading this as a local study workspace for people working with PDFs. ENERGY 1 / RHYTHM 1 / MOTION 1.
+Reading this as a local study workspace for people reading and questioning PDFs. ENERGY 2 / RHYTHM 2 / MOTION 1.
 
-- Color: retain Cerebro's dark navy and gold for continuity; reserve gold for actions and focus.
-- Layout: keep model selection beside the conversation title, where its effect on answers is clear.
-- Typography: use the system sans stack so the interface reads well without a network font.
-- Spacing: keep controls compact and give the conversation the largest reading area.
-- Icons: serve the existing icon set locally; document and chat labels carry the meaning.
-- Motion: use interaction transitions only, with reduced motion respected.
+- Identity: a calm desk for close reading. The recurring motif is a document margin and clear page-like spacing, never a generic AI glow.
+- Color: warm paper, ink, and a restrained ochre accent in light mode; deep blue-green ink and a softer gold in dark mode. Both themes keep the same hierarchy.
+- Layout: the conversation and source controls own the chat screen. Model choice sits at the top because it changes every answer; PDF focus sits beside the reading area.
+- Typography: Georgia gives headings an editorial voice; the system sans stack keeps controls and longer answers legible offline.
+- Spacing: generous reading width in the message area, compact tool controls, and clear pauses between page sections.
+- Components: solid surfaces, small radii, one raised menu or modal at a time. Active states use contrast and text, not glow.
+- Motion: short hover and open transitions only. Reduced-motion preference removes them.
+- Assets: keep the established Cerebro mark and real team photos. No new visual assets.

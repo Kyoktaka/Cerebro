@@ -2,138 +2,90 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>Cerebro | Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Cerebro | Workspace</title>
+    <script src="js/theme.js"></script>
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/chat.css">
 </head>
-<body>
+<body class="chat-page">
+    <a class="skip-link" href="#chatMessages">Skip to conversation</a>
     <div class="chat-layout">
-        <!-- Sidebar -->
-        <aside class="chat-sidebar" id="chatSidebar">
+        <aside class="chat-sidebar" id="chatSidebar" aria-label="Conversations">
             <div class="sidebar-header">
-                <div class="logo">
-                    <i class="fas fa-brain"></i>
-                    <span>Cerebro</span>
-                </div>
-                <button class="close-sidebar" id="closeSidebarBtn" aria-label="Close sidebar">
-                    <i class="fas fa-times"></i>
-                </button>
+                <div class="logo"><span class="logo-mark"><i class="fas fa-brain" aria-hidden="true"></i></span><span>Cerebro</span></div>
+                <button type="button" class="close-sidebar" id="closeSidebarBtn" aria-label="Close conversations"><i class="fas fa-xmark" aria-hidden="true"></i></button>
             </div>
-            
             <div class="sidebar-actions">
-                <button class="new-chat-btn" id="newChatBtn">
-                    <i class="fas fa-plus"></i> New Chat
-                </button>
+                <button type="button" class="new-chat-btn" id="newChatBtn"><i class="fas fa-plus" aria-hidden="true"></i><span>New conversation</span></button>
             </div>
-            
-            <div class="conversations-section">
-                <h4>Today</h4>
-                <div class="conversation-list" id="todayList"></div>
-                
-                <h4>Yesterday</h4>
-                <div class="conversation-list" id="yesterdayList"></div>
-                
-                <h4>Last 7 Days</h4>
-                <div class="conversation-list" id="weekList"></div>
-                
-                <h4>Last 30 Days</h4>
-                <div class="conversation-list" id="monthList"></div>
+            <div class="conversations-section" aria-label="Saved conversations">
+                <h2>Today</h2><div class="conversation-list" id="todayList"></div>
+                <h2>Yesterday</h2><div class="conversation-list" id="yesterdayList"></div>
+                <h2>Last 7 days</h2><div class="conversation-list" id="weekList"></div>
+                <h2>Last 30 days</h2><div class="conversation-list" id="monthList"></div>
+                <h2>Older</h2><div class="conversation-list" id="olderList"></div>
             </div>
-            
             <div class="sidebar-footer">
-                <div class="user-info" id="userInfo">
-                    <i class="fas fa-user-circle"></i>
-                    <span id="userName">Loading...</span>
-                </div>
-                <button class="logout-btn" id="logoutBtn">
-                    <i class="fas fa-sign-out-alt"></i> Logout
-                </button>
-                <button class="delete-account-btn" id="deleteAccountBtn">
-                    <i class="fas fa-trash-alt"></i> Delete Account
-                </button>
+                <div class="user-info" id="userInfo"><i class="fas fa-user-circle" aria-hidden="true"></i><span id="userName">Loading...</span></div>
+                <button type="button" class="logout-btn" id="logoutBtn">Sign out</button>
+                <button type="button" class="delete-account-btn" id="deleteAccountBtn">Delete account</button>
             </div>
         </aside>
-        
-        <!-- Main Chat Area -->
-        <main class="chat-main">
+
+        <main class="chat-main" id="main">
             <header class="chat-header">
-                <button class="menu-toggle" id="menuToggle" aria-label="Open sidebar" aria-controls="chatSidebar" aria-expanded="false">
-                    <i class="fas fa-bars"></i>
-                </button>
-                <h1 class="chat-title" id="chatTitle">New Conversation</h1>
-                <!-- PDF Mode Badge — only visible when a PDF is loaded -->
-                <div id="pdfModeBadge" class="pdf-mode-badge" style="display: none;">
-                    <i class="fas fa-file-pdf"></i> PDF Mode
-                </div>
-                <div class="model-control">
-                    <label for="ollamaModel">Model</label>
-                    <select id="ollamaModel" disabled><option>Checking Ollama...</option></select>
+                <button type="button" class="menu-toggle" id="menuToggle" aria-label="Open conversations" aria-controls="chatSidebar" aria-expanded="false"><i class="fas fa-bars" aria-hidden="true"></i></button>
+                <div class="chat-heading"><p>Conversation</p><h1 class="chat-title" id="chatTitle">New conversation</h1></div>
+                <div id="pdfModeBadge" class="pdf-mode-badge" style="display: none;"><i class="fas fa-file-pdf" aria-hidden="true"></i><span>PDF study</span></div>
+                <div class="chat-tools">
+                    <div class="model-control"><label for="ollamaModel">Model</label><select id="ollamaModel" disabled><option>Checking Ollama...</option></select></div>
+                    <button class="theme-toggle" type="button" data-theme-toggle><i class="fas fa-moon" aria-hidden="true"></i><span data-theme-label>Dark mode</span></button>
                 </div>
             </header>
             <div class="ollama-status" id="ollamaStatus" role="status" aria-live="polite" data-state="loading">
-                <span id="ollamaStatusText">Checking Ollama...</span>
+                <span class="status-dot" aria-hidden="true"></span><span id="ollamaStatusText">Checking Ollama...</span>
                 <button type="button" id="retryOllamaBtn">Refresh models</button>
             </div>
-            
-            <!-- Study Mode Bar (Shows when PDF is loaded) -->
             <div id="studyModeBar" class="study-mode-bar" style="display: none;">
                 <div class="study-mode-info">
-                    <i class="fas fa-file-pdf"></i>
-                    <span>PDFs:</span>
+                    <span class="source-label">Sources</span>
                     <span id="pdfFileName"></span>
                     <span id="pdfCounter" class="pdf-counter"></span>
                 </div>
-                <button class="exit-study-mode" id="exitStudyModeBtn">
-                    <i class="fas fa-times"></i> Exit PDF Mode
-                </button>
+                <button type="button" class="exit-study-mode" id="exitStudyModeBtn">Clear PDFs</button>
             </div>
-            
-            <div class="chat-messages" id="chatMessages">
+            <div class="chat-messages" id="chatMessages" aria-label="Conversation messages" tabindex="-1">
                 <div class="welcome-message">
-                    <i class="fas fa-brain"></i>
-                    <h2>Welcome to Cerebro</h2>
-                    <p>Choose a local model, then ask a question or upload a PDF.</p>
+                    <p class="welcome-kicker">Your workspace</p>
+                    <h2>What are you studying today?</h2>
+                    <p>Choose a local model, ask a question, or add PDFs to study from your own sources.</p>
                 </div>
             </div>
-            
             <div class="chat-input-area">
-                <label class="chat-message-label" for="chatInput">Message</label>
-                <div class="input-actions">
-                    <button class="upload-btn" id="uploadBtn" aria-label="Upload a PDF">
-                        <i class="fas fa-paperclip"></i>
-                    </button>
-                    <div class="upload-options" id="uploadOptions">
-                        <button class="upload-option" id="uploadPdfOption">
-                            <i class="fas fa-file-pdf"></i> Upload PDF
-                        </button>
+                <label class="chat-message-label" for="chatInput">Your question</label>
+                <div class="composer-row">
+                    <button type="button" class="upload-btn" id="uploadBtn" aria-label="Add PDF" disabled><i class="fas fa-paperclip" aria-hidden="true"></i><span>Add PDF</span></button>
+                    <div class="chat-input-wrapper">
+                        <textarea class="chat-input" id="chatInput" placeholder="Ask a question..." rows="1"></textarea>
+                        <button type="button" class="send-btn" id="sendBtn" aria-label="Send message" disabled><i class="fas fa-arrow-up" aria-hidden="true"></i></button>
                     </div>
                 </div>
-                <div class="chat-input-wrapper">
-                    <input type="text" class="chat-input" id="chatInput" placeholder="Ask me anything..." autocomplete="off">
-                    <button class="send-btn" id="sendBtn" aria-label="Send message" disabled>
-                        <i class="fas fa-paper-plane"></i>
-                    </button>
-                </div>
-                <input type="file" id="fileInput" accept=".pdf" multiple style="display: none;">
+                <input type="file" id="fileInput" accept=".pdf,application/pdf" multiple hidden>
             </div>
         </main>
     </div>
-    
-    <!-- Edit Conversation Modal -->
+
     <div id="editModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editModalTitle" style="display: none;">
         <div class="modal-content">
-            <h2 id="editModalTitle">Edit Conversation Title</h2>
-            <label for="editTitleInput">Title</label>
-            <input type="text" id="editTitleInput" placeholder="Enter new title">
-            <div class="modal-buttons">
-                <button id="saveEditBtn">Save</button>
-                <button id="cancelEditBtn">Cancel</button>
-            </div>
+            <h2 id="editModalTitle">Rename conversation</h2>
+            <label for="editTitleInput">Conversation name</label>
+            <input type="text" id="editTitleInput" autocomplete="off">
+            <div class="modal-buttons"><button type="button" id="cancelEditBtn">Cancel</button><button type="button" id="saveEditBtn">Save name</button></div>
         </div>
     </div>
-    
     <script src="js/chat.js"></script>
 </body>
 </html>

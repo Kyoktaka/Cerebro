@@ -2,53 +2,36 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>Cerebro | Login</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Sign in | Cerebro</title>
+    <script src="js/theme.js"></script>
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
-    <!-- Back Button -->
-    <a href="index.html" class="back-home">
-        <i class="fas fa-arrow-left"></i> Back
-    </a>
-    
-    <div class="auth-wrapper">
+<body class="auth-page">
+    <a class="skip-link" href="#main">Skip to sign in</a>
+    <header class="auth-topbar">
+        <a href="index.html" class="auth-brand"><span class="logo-mark"><i class="fas fa-brain" aria-hidden="true"></i></span><span>Cerebro</span></a>
+        <button class="theme-toggle" type="button" data-theme-toggle><i class="fas fa-moon" aria-hidden="true"></i><span data-theme-label>Dark mode</span></button>
+    </header>
+    <main class="auth-wrapper" id="main">
         <div class="auth-container">
-            <div class="auth-card">
-                <div class="auth-header">
-                    <i class="fas fa-brain"></i>
-                    <h1>Welcome Back</h1>
-                    <p>Login to your Cerebro account</p>
-                </div>
-                
-                <div id="errorMessage" class="error-message"></div>
-                
+            <a href="index.html" class="back-home"><i class="fas fa-arrow-left" aria-hidden="true"></i> Home</a>
+            <section class="auth-card">
+                <div class="auth-header"><p class="kicker">Your workspace</p><h1>Welcome back.</h1><p>Sign in to pick up your conversations.</p></div>
+                <div id="errorMessage" class="error-message" role="alert" aria-live="assertive"></div>
+                <div id="successMessage" class="success-message" role="status" hidden>Account created. Sign in to continue.</div>
                 <form id="loginForm">
-                    <div class="input-group">
-                        <i class="fas fa-user"></i>
-                        <input type="text" id="username" placeholder="Username (Last Name)" required>
-                    </div>
-                    <div class="input-group">
-                        <i class="fas fa-lock"></i>
-                        <input type="password" id="password" placeholder="Password" required>
-                        <i class="fas fa-eye-slash toggle-password" id="togglePassword"></i>
-                    </div>
-                    
-                    <div class="auth-options">
-                        <a href="#" id="forgotPassword">Forgot Password?</a>
-                    </div>
-                    
-                    <button type="submit" class="btn-auth">Login</button>
+                    <div class="input-group"><label for="username">Last name (username)</label><input type="text" id="username" name="username" autocomplete="username" placeholder="Your last name" required></div>
+                    <div class="input-group"><label for="password">Password</label><div class="password-field"><input type="password" id="password" name="password" autocomplete="current-password" required><button type="button" class="toggle-password" data-target="password" aria-label="Show password" aria-pressed="false">Show</button></div></div>
+                    <div class="auth-options"><button type="button" id="forgotPassword">Forgot password?</button></div>
+                    <button type="submit" class="btn-auth">Sign in</button>
                 </form>
-                
-                <div class="auth-footer">
-                    Don't have an account? <a href="register.html">Create one</a>
-                </div>
-            </div>
+                <p class="auth-footer">New to Cerebro? <a href="register.html">Create an account</a></p>
+            </section>
         </div>
-    </div>
-    
+    </main>
     <script src="js/auth.js"></script>
 </body>
 </html>

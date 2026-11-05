@@ -23,8 +23,6 @@ const menuToggle = document.getElementById('menuToggle');
 const closeSidebarBtn = document.getElementById('closeSidebarBtn');
 const newChatBtn = document.getElementById('newChatBtn');
 const uploadBtn = document.getElementById('uploadBtn');
-const uploadOptions = document.getElementById('uploadOptions');
-const uploadPdfOption = document.getElementById('uploadPdfOption');
 const fileInput = document.getElementById('fileInput');
 const chatInput = document.getElementById('chatInput');
 const sendBtn = document.getElementById('sendBtn');
@@ -57,7 +55,7 @@ function syncOllamaControls() {
     sendBtn.disabled = !selectedModel || isSending || isUploading;
     uploadBtn.disabled = !embeddingAvailable || isUploading || isSending;
     retryOllamaBtn.disabled = isLoadingModels || isUploading || isSending;
-    if (uploadBtn.disabled) uploadOptions.classList.remove('show');
+    uploadBtn.title = embeddingAvailable ? 'Add PDF' : 'PDF study needs a local embedding model.';
 }
 
 function modelIsAvailable(name, models) {
@@ -67,24 +65,23 @@ function modelIsAvailable(name, models) {
 async function loadOllamaModels() {
     if (isLoadingModels || isUploading || isSending) return;
     isLoadingModels = true;
-    setOllamaStatus('Checking Ollama...', 'loading');
+    setOllamaStatus('Checking local models...', 'loading');
     selectedModel = '';
     embeddingAvailable = false;
     ollamaModel.disabled = true;
-    ollamaModel.replaceChildren(new Option('Checking Ollama...', ''));
+    ollamaModel.replaceChildren(new Option('Checking models...', ''));
     syncOllamaControls();
 
     try {
         const response = await fetch(`${API_BASE_URL}/models`);
         const data = await response.json();
         if (!response.ok || !data.available) {
-            throw new Error(data.error || 'Ollama is unavailable. Start it and check OLLAMA_BASE_URL (default http://localhost:11434).');
+            throw new Error(data.error || 'Ollama is unavailable. Start it, then refresh models.');
         }
 
-        const allModels = (data.models || []).map(model => model.name).filter(Boolean);
-        const chatModels = allModels.filter(name => !modelIsAvailable(data.embeddingModel, [name]));
+        const chatModels = (data.models || []).map(model => model.name).filter(Boolean);
         if (chatModels.length === 0) {
-            throw new Error('No chat model found. Run ollama pull llama3.2, then refresh models.');
+            throw new Error('No local chat model found. Pull a chat model in Ollama, then refresh.');
         }
 
         ollamaModel.replaceChildren(...chatModels.map(name => new Option(name, name)));
@@ -98,9 +95,9 @@ async function loadOllamaModels() {
         syncOllamaControls();
 
         if (embeddingAvailable) {
-            setOllamaStatus('Ollama ready. Chat and PDF study available.', 'ready');
+            setOllamaStatus('Ollama connected. Chat and PDF study are ready.', 'ready');
         } else {
-            setOllamaStatus(`Chat ready. To upload PDFs, run ollama pull ${data.embeddingModel}, then refresh models.`, 'error');
+            setOllamaStatus(`Chat is ready. For PDF study, run ollama pull ${data.embeddingModel}, then refresh.`, 'error');
         }
     } catch (error) {
         ollamaModel.replaceChildren(new Option('No model available', ''));
@@ -133,9 +130,7 @@ async function refreshSidebarOnly() {
     }
 }
 
-// PDF MODE FUNCTIONS
 function enablePDFMode(pdfName, pdfCount = 1, pdfNames = [], focusedNames = pdfNames) {
-    console.log('Enabling PDF Mode');
     isPDFMode = true;
     currentPDFName = pdfName;
     currentPDFCount = pdfCount;
@@ -155,11 +150,9 @@ function enablePDFMode(pdfName, pdfCount = 1, pdfNames = [], focusedNames = pdfN
             pdfCounter.style.display = 'none';
         }
     }
-    console.log('PDF Mode enabled');
 }
 
 function disablePDFMode() {
-    console.log('Disabling PDF Mode');
     isPDFMode = false;
     currentPDFName = '';
     currentPDFCount = 0;
@@ -170,7 +163,6 @@ function disablePDFMode() {
     if (studyModeBar) studyModeBar.style.display = 'none';
 
     closePDFManager();
-    console.log('PDF Mode disabled');
 }
 
 
@@ -190,7 +182,7 @@ function renderPDFChips() {
             pdfFileNameSpan.appendChild(chip);
         }
     } else {
-        const maxVisible = window.innerWidth <= 480 ? 2 : (window.innerWidth <= 768 ? 3 : 5);
+        const maxVisible = window.innerWidth <= 480 ? 2 : (window.innerWidth <= 760 ? 3 : 5);
         const visiblePDFs = activePDFNames.slice(0, maxVisible);
         const remainingActive = activePDFNames.length - visiblePDFs.length;
         
@@ -258,8 +250,8 @@ function truncateName(name, max) {
     return name.substring(0, max) + '...';
 }
 
-// PDF MANAGER PANEL
 let activePDFManagerPanel = null;
+let pdfManagerTrigger = null;
 
 function openPDFManager() {
     if (activePDFManagerPanel) {
@@ -270,6 +262,9 @@ function openPDFManager() {
     const panel = document.createElement('div');
     panel.id = 'pdfManagerPanel';
     panel.className = 'pdf-manager-panel';
+    panel.setAttribute('role', 'region');
+    panel.setAttribute('aria-label', 'PDF source manager');
+    pdfManagerTrigger = document.activeElement;
 
     const listItems = currentPDFNames.map((name) => {
         const isActive = activePDFNames.includes(name);
@@ -278,7 +273,7 @@ function openPDFManager() {
                 <input type="checkbox" class="pdf-focus-check" data-name="${escapeHtml(name)}" ${isActive ? 'checked' : ''}>
                 <i class="fas fa-file-pdf"></i>
                 <span class="pdf-item-name">${escapeHtml(truncateName(name, 30))}</span>
-                ${!isActive ? '<span style="font-size:0.65rem; color:var(--text-muted); margin-left:auto;">(waiting)</span>' : ''}
+                ${!isActive ? '<span class="pdf-waiting-label">Not focused</span>' : ''}
             </label>
         `;
     }).join('');
@@ -286,22 +281,22 @@ function openPDFManager() {
     panel.innerHTML = `
         <div class="pdf-manager-header">
             <i class="fas fa-layer-group"></i>
-            <span class="pdf-manager-title">Manage PDFs (${activePDFNames.length}/${currentPDFNames.length} focused)</span>
+            <span class="pdf-manager-title">Choose sources (${activePDFNames.length} of ${currentPDFNames.length})</span>
             <button class="pdf-manager-close" id="pdfManagerClose" aria-label="Close PDF manager"><i class="fas fa-times"></i></button>
         </div>
-        <p class="pdf-manager-hint">Checked = AI will focus on it | Unchecked = waiting list (kept but not used)</p>
+        <p class="pdf-manager-hint">Selected PDFs are used for your next question. The others stay here.</p>
         <div class="pdf-manager-list">
             ${listItems}
         </div>
         <div class="pdf-manager-footer">
             <button class="pdf-manager-action-btn pdf-select-all-btn" id="pdfSelectAll">
-                <i class="fas fa-check-double"></i> Select All
+                <i class="fas fa-check-double"></i> Select all
             </button>
             <button class="pdf-manager-action-btn pdf-apply-btn" id="pdfApplyFocus">
-                <i class="fas fa-crosshairs"></i> Apply Focus
+                <i class="fas fa-crosshairs"></i> Use selected
             </button>
             <button class="pdf-manager-action-btn pdf-delete-btn" id="pdfDeleteSelected">
-                <i class="fas fa-trash-alt"></i> Delete Checked
+                <i class="fas fa-trash-alt"></i> Delete selected
             </button>
         </div>
     `;
@@ -309,6 +304,7 @@ function openPDFManager() {
     studyModeBar.parentNode.insertBefore(panel, studyModeBar.nextSibling);
     activePDFManagerPanel = panel;
     requestAnimationFrame(() => panel.classList.add('pdf-manager-panel-open'));
+    panel.querySelector('#pdfManagerClose').focus();
 
     document.getElementById('pdfManagerClose').addEventListener('click', (e) => {
         e.stopPropagation();
@@ -321,10 +317,10 @@ function openPDFManager() {
     const allChecked = [...checks].every(c => c.checked);
     if (allChecked) {
         checks.forEach(c => c.checked = false);
-        e.currentTarget.innerHTML = '<i class="fas fa-check-double"></i> Select All';
+        e.currentTarget.innerHTML = '<i class="fas fa-check-double"></i> Select all';
     } else {
         checks.forEach(c => c.checked = true);
-        e.currentTarget.innerHTML = '<i class="fas fa-times"></i> Deselect All';
+        e.currentTarget.innerHTML = '<i class="fas fa-times"></i> Deselect all';
     }
 });
 
@@ -366,8 +362,11 @@ function showPanelError(panel, msg) {
 
 function closePDFManager() {
     if (activePDFManagerPanel) {
+        const returnFocus = activePDFManagerPanel.contains(document.activeElement);
         activePDFManagerPanel.remove();
         activePDFManagerPanel = null;
+        if (returnFocus && pdfManagerTrigger?.isConnected) pdfManagerTrigger.focus();
+        pdfManagerTrigger = null;
     }
 }
 
@@ -410,27 +409,14 @@ async function applyFocus(namesToFocus) {
     } catch (error) {
         if (currentConversationId !== targetConversationId) return;
         if (activePDFManagerPanel) showPanelError(activePDFManagerPanel, error.message);
-        else addMessageToUI(`Could not update PDF focus: ${error.message}`, 'bot');
+        else addMessageToUI(`Could not update PDF focus: ${error.message}`, 'error');
         return;
     }
 
     if (pdfCounter && currentPDFNames.length > 1) {
         pdfCounter.textContent = `${activePDFNames.length}/${currentPDFNames.length} focused`;
     }
-    const waitingCount = currentPDFNames.length - activePDFNames.length;
-    let message = `Focus applied to ${activePDFNames.length} PDF(s)`;
-    
-    if (waitingCount > 0) {
-        const waitingPDFs = currentPDFNames.filter(n => !activePDFNames.includes(n));
-        message += `\n\n${waitingCount} PDF(s) in waiting list:\n${waitingPDFs.map(n => `- ${n}`).join('\n')}`;
-        message += `\n\nCheck them in the manager to add back to focus.`;
-    } else {
-        message += `\n\nAll ${currentPDFNames.length} PDF(s) are now in focus.`;
-    }
-    message += `\n\nAsk me anything about your focused documents!`;
-
-    addMessageToUI(message, 'bot');
-    currentMessages.push({ role: 'assistant', content: message, timestamp: new Date().toISOString() });
+    addMessageToUI(`Using ${activePDFNames.length} of ${currentPDFNames.length} PDFs for study.`, 'notice');
 }
 
 
@@ -459,7 +445,7 @@ async function deleteSelectedPDFs(namesToDelete) {
         if (currentConversationId !== targetConversationId) return;
         await loadConversation(targetConversationId);
         if (currentConversationId !== targetConversationId) return;
-        addMessageToUI(`PDF deletion stopped: ${error.message}`, 'bot');
+        addMessageToUI(`PDF deletion stopped: ${error.message}`, 'error');
         return;
     }
 
@@ -471,23 +457,17 @@ async function deleteSelectedPDFs(namesToDelete) {
 
     if (currentPDFCount === 0) {
         disablePDFMode();
-        const msg = `Removed ${label}\n\nNo PDFs remaining - switched back to normal chat mode.`;
-        addMessageToUI(msg, 'bot');
-        currentMessages.push({ role: 'assistant', content: msg, timestamp: new Date().toISOString() });
+        addMessageToUI(`Removed ${label}. General chat is ready.`, 'notice');
     } else {
         currentPDFName = activePDFNames[0] || currentPDFNames[0];
         enablePDFMode(currentPDFName, currentPDFCount, currentPDFNames, activePDFNames);
-        const msg = `Removed ${label}\n\n${currentPDFCount} PDF(s) still loaded. You can upload up to ${10 - currentPDFCount} more.`;
-        addMessageToUI(msg, 'bot');
-        currentMessages.push({ role: 'assistant', content: msg, timestamp: new Date().toISOString() });
+        addMessageToUI(`Removed ${label}. ${currentPDFCount} PDFs remain.`, 'notice');
     }
 }
 
-// Exit PDF Mode button
 if (exitStudyModeBtn) {
     exitStudyModeBtn.addEventListener('click', async () => {
         const targetConversationId = currentConversationId;
-        console.log('Exit PDF Mode button clicked');
         try {
             const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}/clear-pdfs`, {
                 method: 'POST',
@@ -496,16 +476,13 @@ if (exitStudyModeBtn) {
             });
             const data = await response.json();
             if (!response.ok || !data.success) throw new Error(data.error || 'Could not clear PDFs.');
-            console.log('PDF context cleared');
         } catch (error) {
-            if (currentConversationId === targetConversationId) addMessageToUI(`Could not exit PDF mode: ${error.message}`, 'bot');
+            if (currentConversationId === targetConversationId) addMessageToUI(`Could not clear PDFs: ${error.message}`, 'error');
             return;
         }
         if (currentConversationId !== targetConversationId) return;
         disablePDFMode();
-        const msg = "Exited PDF Mode\n\nSwitched back to normal chat mode. Upload a new PDF anytime!";
-        addMessageToUI(msg, 'bot');
-        currentMessages.push({ role: 'assistant', content: msg, timestamp: new Date().toISOString() });
+        addMessageToUI('PDFs cleared. General chat is ready.', 'notice');
     });
 }
 
@@ -513,7 +490,7 @@ if (exitStudyModeBtn) {
 let isSidebarCollapsed = false;
 
 function syncSidebarAccessibility() {
-    const hidden = window.innerWidth <= 768
+    const hidden = window.innerWidth <= 760
         ? !sidebar.classList.contains('open')
         : sidebar.classList.contains('collapsed');
     sidebar.inert = hidden;
@@ -540,7 +517,7 @@ function saveSidebarState() {
 }
 
 function toggleSidebar() {
-    if (window.innerWidth <= 768) {
+    if (window.innerWidth <= 760) {
         sidebar.classList.toggle('open');
     } else {
         isSidebarCollapsed = !isSidebarCollapsed;
@@ -557,7 +534,7 @@ function toggleSidebar() {
 }
 
 function closeSidebar() {
-    if (window.innerWidth <= 768) {
+    if (window.innerWidth <= 760) {
         sidebar.classList.remove('open');
     } else {
         isSidebarCollapsed = true;
@@ -574,7 +551,7 @@ if (menuToggle) menuToggle.addEventListener('click', toggleSidebar);
 if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', closeSidebar);
 
 document.addEventListener('click', (e) => {
-    if (window.innerWidth <= 768) {
+    if (window.innerWidth <= 760) {
         if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
             sidebar.classList.remove('open');
             syncSidebarAccessibility();
@@ -583,7 +560,7 @@ document.addEventListener('click', (e) => {
 });
 
 window.addEventListener('resize', () => {
-    if (window.innerWidth > 768) {
+    if (window.innerWidth > 760) {
         sidebar.classList.remove('open');
         if (isSidebarCollapsed) {
             sidebar.classList.add('collapsed');
@@ -600,7 +577,6 @@ window.addEventListener('resize', () => {
 });
 
 
-// CONVERSATION MANAGEMENT
 function groupConversationsByDate(conversations) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -611,7 +587,7 @@ function groupConversationsByDate(conversations) {
     const monthAgo = new Date(today);
     monthAgo.setDate(monthAgo.getDate() - 30);
 
-    const groups = { today: [], yesterday: [], week: [], month: [] };
+    const groups = { today: [], yesterday: [], week: [], month: [], older: [] };
 
     conversations.forEach(conv => {
         const convDate = new Date(conv.updatedAt);
@@ -620,6 +596,7 @@ function groupConversationsByDate(conversations) {
         else if (convDate.getTime() === yesterday.getTime()) groups.yesterday.push(conv);
         else if (convDate >= weekAgo) groups.week.push(conv);
         else if (convDate >= monthAgo) groups.month.push(conv);
+        else groups.older.push(conv);
     });
     return groups;
 }
@@ -630,8 +607,9 @@ function renderConversationList() {
     const yesterdayList = document.getElementById('yesterdayList');
     const weekList = document.getElementById('weekList');
     const monthList = document.getElementById('monthList');
+    const olderList = document.getElementById('olderList');
 
-    for (const [key, list] of Object.entries({ today: todayList, yesterday: yesterdayList, week: weekList, month: monthList })) {
+    for (const [key, list] of Object.entries({ today: todayList, yesterday: yesterdayList, week: weekList, month: monthList, older: olderList })) {
         if (!list) continue;
         list.innerHTML = groups[key].map(conv => createConversationItem(conv)).join('');
         list.previousElementSibling.hidden = groups[key].length === 0;
@@ -704,7 +682,7 @@ async function createNewConversation() {
         renderCurrentConversation();
         if (chatTitle) chatTitle.textContent = 'New Conversation';
         disablePDFMode();
-        if (window.innerWidth <= 768) closeSidebar();
+        if (window.innerWidth <= 760) closeSidebar();
     } catch (error) {
         if (requestVersion !== conversationRequestVersion) return;
         console.error('Error creating conversation:', error);
@@ -732,7 +710,7 @@ async function loadConversation(conversationId) {
         }
 
         renderConversationList();
-        if (window.innerWidth <= 768) closeSidebar();
+        if (window.innerWidth <= 760) closeSidebar();
     } catch (error) {
         if (requestVersion !== conversationRequestVersion || currentConversationId !== conversationId) return;
         console.error('Error loading conversation:', error);
@@ -744,12 +722,39 @@ async function editConversation(conversationId, currentTitle) {
     const modal = document.getElementById('editModal');
     const input = document.getElementById('editTitleInput');
     if (!modal || !input) return;
+    const layout = document.querySelector('.chat-layout');
+    const previousFocus = document.activeElement;
     input.value = currentTitle;
     modal.style.display = 'flex';
+    layout.inert = true;
     input.focus();
 
     const saveBtn = document.getElementById('saveEditBtn');
     const cancelBtn = document.getElementById('cancelEditBtn');
+
+    const closeModal = () => {
+        modal.style.display = 'none';
+        layout.inert = false;
+        saveBtn.removeEventListener('click', saveHandler);
+        cancelBtn.removeEventListener('click', cancelHandler);
+        modal.removeEventListener('keydown', keepFocusInside);
+        const editButton = [...document.querySelectorAll('.conv-edit')].find(button => button.dataset.id === conversationId);
+        (editButton || (previousFocus.isConnected ? previousFocus : newChatBtn)).focus();
+    };
+
+    const keepFocusInside = event => {
+        if (event.key !== 'Tab') return;
+        const focusable = [input, cancelBtn, saveBtn];
+        const first = focusable[0];
+        const last = focusable.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+        }
+    };
 
     const saveHandler = async () => {
         const newTitle = input.value.trim();
@@ -768,17 +773,14 @@ async function editConversation(conversationId, currentTitle) {
                 console.error('Error editing conversation:', error);
             }
         }
-        modal.style.display = 'none';
-        saveBtn.removeEventListener('click', saveHandler);
-        cancelBtn.removeEventListener('click', cancelHandler);
+        closeModal();
     };
 
     const cancelHandler = () => {
-        modal.style.display = 'none';
-        saveBtn.removeEventListener('click', saveHandler);
-        cancelBtn.removeEventListener('click', cancelHandler);
+        closeModal();
     };
 
+    modal.addEventListener('keydown', keepFocusInside);
     saveBtn.addEventListener('click', saveHandler);
     cancelBtn.addEventListener('click', cancelHandler);
 }
@@ -808,9 +810,9 @@ function renderCurrentConversation() {
     if (currentMessages.length === 0) {
         chatMessages.innerHTML = `
             <div class="welcome-message">
-                <i class="fas fa-brain"></i>
-                <h2>Welcome to Cerebro</h2>
-                <p>Choose a local model, then ask a question or upload a PDF.</p>
+                <p class="welcome-kicker">Your workspace</p>
+                <h2>What are you studying today?</h2>
+                <p>Choose a local model, ask a question, or add PDFs to study from your own sources.</p>
             </div>
         `;
         return;
@@ -825,7 +827,9 @@ function renderCurrentConversation() {
 
 function addMessageToUI(text, role, attachments = null, isProcessing = false) {
     const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${role === 'user' ? 'user' : 'bot'}`;
+    messageDiv.className = `message ${role === 'user' ? 'user' : role === 'notice' || role === 'error' ? `notice${role === 'error' ? ' error' : ''}` : 'bot'}`;
+    if (role === 'notice') messageDiv.setAttribute('role', 'status');
+    if (role === 'error') messageDiv.setAttribute('role', 'alert');
     let content;
     if (isProcessing) {
         content = `<div class="message-content status-content">${formatMessage(text)}</div>`;
@@ -845,7 +849,6 @@ function addMessageToUI(text, role, attachments = null, isProcessing = false) {
 }
 
 
-// SEND MESSAGE
 async function sendMessage() {
     const message = chatInput.value.trim();
     if (!message || !selectedModel || isSending || isUploading) return;
@@ -858,6 +861,7 @@ async function sendMessage() {
     addMessageToUI(message, 'user');
     currentMessages.push({ role: 'user', content: message, timestamp: new Date().toISOString() });
     chatInput.value = '';
+    chatInput.style.height = '';
 
     showTypingIndicator();
 
@@ -931,7 +935,7 @@ async function sendMessage() {
         console.error('Send message error:', error);
         removeTypingIndicator();
         if (currentConversationId === targetConversationId) {
-            addMessageToUI(`Response stopped: ${error.message}`, 'bot');
+            addMessageToUI(`Response stopped: ${error.message}`, 'error');
         }
         if (/ollama|model|connect|fetch/i.test(error.message)) {
             setOllamaStatus(`${error.message} Check Ollama, then refresh models.`, 'error');
@@ -946,26 +950,9 @@ async function sendMessage() {
 }
 
 
-// PDF UPLOAD
 if (uploadBtn) {
-    uploadBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        uploadOptions.classList.toggle('show');
-    });
+    uploadBtn.addEventListener('click', () => fileInput.click());
 }
-
-if (uploadPdfOption) {
-    uploadPdfOption.addEventListener('click', () => {
-        uploadOptions.classList.remove('show');
-        fileInput.click();
-    });
-}
-
-document.addEventListener('click', (e) => {
-    if (!uploadBtn?.contains(e.target) && !uploadOptions?.contains(e.target)) {
-        uploadOptions?.classList.remove('show');
-    }
-});
 
 if (fileInput) {
     fileInput.addEventListener('change', async (e) => {
@@ -977,15 +964,10 @@ if (fileInput) {
         syncOllamaControls();
         const fileNames = Array.from(files).map(f => f.name);
 
-        const uploadMsg = `Uploading ${fileNames.length} file(s)...\n\n${fileNames.map(f => `- ${f}`).join('\n')}`;
         if (currentMessages.length === 0) chatMessages.replaceChildren();
-        addMessageToUI(uploadMsg, 'user');
-        currentMessages.push({ role: 'user', content: uploadMsg, timestamp: new Date().toISOString() });
         for (const file of files) {
             if (file.size > 10 * 1024 * 1024) {
-                const errMsg = `${file.name} exceeds 10MB limit`;
-                addMessageToUI(errMsg, 'bot');
-                currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
+                addMessageToUI(`${file.name} exceeds the 10 MB limit.`, 'error');
                 fileInput.value = '';
                 isUploading = false;
                 syncOllamaControls();
@@ -993,8 +975,7 @@ if (fileInput) {
             }
         }
 
-        const processingMsg = { role: 'assistant', content: 'Processing PDF(s)... Extracting text...', _isProcessing: true, timestamp: new Date().toISOString() };
-        addMessageToUI(processingMsg.content, 'assistant', null, true);
+        addMessageToUI(`Reading ${fileNames.length} PDF${fileNames.length === 1 ? '' : 's'}...`, 'notice');
         const spinnerEl = chatMessages.lastElementChild;
 
         const formData = new FormData();
@@ -1013,26 +994,17 @@ if (fileInput) {
 
             if (currentConversationId === targetConversationId && result.success) {
                 const allPDFNames = result.pdfNames || fileNames;
-                let successMessage = `PDF Upload Complete!\n\n`;
-                successMessage += `Files uploaded:\n${fileNames.map(f => `- ${f}`).join('\n')}\n\n`;
-                successMessage += `Stats: ${result.pdfCount}/${result.maxPDFs} PDFs | ${result.charCount.toLocaleString()} characters\n\n`;
-                successMessage += `PDF Mode active. Click the PDF chips above to manage which documents to focus on!`;
-                if (result.truncated) successMessage += `\n\nNote: Some content was truncated due to length limits.`;
-
-                addMessageToUI(successMessage, 'bot');
-                currentMessages.push({ role: 'assistant', content: successMessage, timestamp: new Date().toISOString() });
+                const fileLabel = fileNames.length === 1 ? fileNames[0] : `${fileNames.length} PDFs`;
+                const truncated = result.truncated ? ' Some text was trimmed to fit the size limit.' : '';
+                addMessageToUI(`Added ${fileLabel}. ${result.pdfCount} of ${result.maxPDFs} PDFs in this conversation.${truncated}`, 'notice');
                 enablePDFMode(result.activePdfNames?.[0] || fileNames[0], result.pdfCount || 1, allPDFNames, result.activePdfNames || allPDFNames);
             } else if (currentConversationId === targetConversationId) {
-                const errMsg = `Upload failed\n\n${result.error || 'Please try again.'}`;
-                addMessageToUI(errMsg, 'bot');
-                currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
+                addMessageToUI(`Upload failed: ${result.error || 'Please try again.'}`, 'error');
             }
         } catch (error) {
             if (spinnerEl && spinnerEl.parentNode) spinnerEl.remove();
             if (currentConversationId === targetConversationId) {
-                const errMsg = 'Failed to upload PDFs\n\nPlease check your connection and make sure the server is running.';
-                addMessageToUI(errMsg, 'bot');
-                currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
+                addMessageToUI('Upload failed. Check Ollama and the Cerebro server, then try again.', 'error');
             }
         }
 
@@ -1045,8 +1017,6 @@ if (fileInput) {
 }
 
 
-// UTILITY FUNCTIONS
-
 function formatMessage(text) {
     if (!text) return '';
     return escapeHtml(text).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
@@ -1056,7 +1026,7 @@ function showTypingIndicator() {
     const typingDiv = document.createElement('div');
     typingDiv.className = 'message bot typing';
     typingDiv.id = 'typingIndicator';
-    typingDiv.innerHTML = '<div class="message-content">Thinking...</div>';
+    typingDiv.innerHTML = '<div class="message-content">Generating...</div>';
     chatMessages.appendChild(typingDiv);
     scrollToBottom();
 }
@@ -1075,10 +1045,19 @@ function escapeHtml(unsafe) {
     return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
 
-// EVENT LISTENERS
-
 if (sendBtn) sendBtn.addEventListener('click', sendMessage);
-if (chatInput) chatInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+if (chatInput) {
+    chatInput.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+            event.preventDefault();
+            sendMessage();
+        }
+    });
+    chatInput.addEventListener('input', () => {
+        chatInput.style.height = 'auto';
+        chatInput.style.height = `${Math.min(chatInput.scrollHeight, 160)}px`;
+    });
+}
 if (newChatBtn) newChatBtn.addEventListener('click', createNewConversation);
 
 if (logoutBtn) {
