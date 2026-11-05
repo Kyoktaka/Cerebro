@@ -1,6 +1,16 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence } = require('../rag');
+const { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence, quizRequest, makeSourceQuiz } = require('../rag');
+
+test('quiz uses exact source sentences and identifies requested topics', () => {
+    const chunks = [{ pdfName: 'resume.pdf', text: 'James is a software developer building websites.\nHe creates database systems for clients.' }];
+    assert.equal(quizRequest('create me a quiz').topic, '');
+    assert.equal(quizRequest('make a quiz about science').topic, 'science');
+    assert.equal(questionHasEvidence('who is the person?', chunks), true);
+    const quiz = makeSourceQuiz(chunks);
+    assert.equal(quiz.length, 2);
+    for (const item of quiz) assert.ok(chunks[0].text.includes(item.prompt.replace('_____', item.answer)));
+});
 
 test('unrelated question is rejected while document summary and matching question are allowed', () => {
     const chunks = [{ text: 'James is a software developer with experience building websites.' }];

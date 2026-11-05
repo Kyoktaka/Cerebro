@@ -53,6 +53,7 @@ function retrieveChunks(index, activeNames, queryVector) {
 }
 
 function questionHasEvidence(question, chunks) {
+    if (/^\s*who\s+is\s+(?:he|she|the person)\s*[?.!]*\s*$/i.test(question)) return true;
     const words = question.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
     const stop = new Set(['what', 'whats', 'that', 'this', 'about', 'tell', 'please', 'could', 'would', 'should', 'does', 'have', 'from', 'with', 'your', 'their', 'which', 'where', 'when', 'into', 'explain', 'describe', 'summarize', 'summary', 'document', 'documents', 'pdf', 'file', 'files', 'content', 'uploaded', 'question', 'based', 'according', 'can', 'you', 'the', 'and', 'for', 'are', 'all', 'how', 'who', 'why', 'was', 'again']);
     const terms = words.filter(word => word.length > 2 && !stop.has(word));
@@ -61,4 +62,29 @@ function questionHasEvidence(question, chunks) {
     return terms.every(term => tokens.has(term));
 }
 
-module.exports = { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence };
+function quizRequest(question) {
+    if (!/\b(?:quiz|quizzes|reviewer|flashcards?)\b/i.test(question)) return null;
+    const topic = question.toLowerCase().replace(/\b(?:create|make|generate|give|build|prepare|write|please|could|would|can|you|me|a|an|the|some|quiz|quizzes|reviewer|flashcards|flashcard|questions|question|about|on|from|using|based|of|for|this|these|my|pdf|pdfs|document|documents|file|files|uploaded)\b/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    return { topic };
+}
+
+function makeSourceQuiz(chunks, limit = 5) {
+    const seen = new Set();
+    const questions = [];
+    for (const chunk of chunks) {
+        const sentences = chunk.text.split(/\n+|(?<=[.!?])\s+/u);
+        for (const raw of sentences) {
+            const sentence = raw.replace(/^\s*[•\-*]\s*/, '').trim();
+            if (sentence.length < 25 || sentence.length > 240 || !/[.!?]$/.test(sentence)) continue;
+            const words = [...sentence.matchAll(/\b[A-Za-z]{5,}\b/g)];
+            if (words.length < 3 || seen.has(sentence.toLowerCase())) continue;
+            const word = words.at(-1);
+            seen.add(sentence.toLowerCase());
+            questions.push({ prompt: sentence.slice(0, word.index) + '_____' + sentence.slice(word.index + word[0].length), answer: word[0], source: chunk.pdfName });
+            if (questions.length === limit) return questions;
+        }
+    }
+    return questions;
+}
+
+module.exports = { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence, quizRequest, makeSourceQuiz };

@@ -136,6 +136,12 @@ test('local model discovery, streamed chat, PDF focus, and persisted index', asy
         assert.doesNotMatch(studyAnswer, /Alpha document explains cells/);
         const unrelated = await streamChat(base, { message: 'What is science?', sessionId, conversationId, model: 'llama3.2' });
         assert.match(unrelated.at(-1).answer, /cannot answer/i);
+        const quiz = await streamChat(base, { message: 'create me a quiz', sessionId, conversationId, model: 'llama3.2' });
+        assert.match(quiz.at(-1).answer, /Answer key:/);
+        assert.match(quiz.at(-1).answer, /beta\.pdf/);
+        assert.doesNotMatch(quiz.at(-1).answer, /alpha\.pdf/);
+        const unrelatedQuiz = await streamChat(base, { message: 'create a quiz about science', sessionId, conversationId, model: 'llama3.2' });
+        assert.match(unrelatedQuiz.at(-1).answer, /cannot answer/i);
 
         await stopCerebro(app);
         app = await startCerebro(port, ollamaPort);
