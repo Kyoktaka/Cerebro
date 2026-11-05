@@ -55,6 +55,7 @@ OLLAMA_NUM_CTX=8192
 - Upload up to 10 PDFs per conversation, at most 10 MB each. Extracted text across the conversation is limited to 1,000,000 characters.
 - Select which uploaded PDFs to focus on, remove a PDF, or exit PDF mode. With no active PDF, Cerebro uses general chat.
 - General chat answers stream from the local model. With PDFs selected, Cerebro returns verbatim passages with source names and refuses questions whose key words are absent. Conversations are saved locally.
+- Ask for a quiz to make fill-in-the-blank questions from sentences in the selected PDFs. The answer key identifies the source; topic requests need matching words in a selected passage.
 - Use the theme button in the header to switch between light and dark mode. Cerebro remembers your choice and starts in dark mode.
 
 PDF answers quote retrieved text rather than generating a summary. Word matching can miss paraphrases, and a matching passage may not fully answer the question. Check the original documents. Image-only or scanned PDFs need OCR before Cerebro can read their text.

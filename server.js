@@ -19,7 +19,7 @@ const {
     openChat,
     readChatStream
 } = require('./local-ai');
-const { chunkText, retrieveChunks, questionHasEvidence } = require('./rag');
+const { chunkText, retrieveChunks, questionHasEvidence, quizRequest, makeSourceQuiz } = require('./rag');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -717,7 +717,21 @@ app.post('/api/chat', async (req, res) => {
             if (!chunks.length) {
                 throw new OllamaError('No readable text found in the focused PDFs.', 422);
             }
-            if (!questionHasEvidence(message, chunks)) {
+            const quiz = quizRequest(message);
+            if (quiz && (!quiz.topic || questionHasEvidence(quiz.topic, chunks))) {
+                const questions = makeSourceQuiz(quiz.topic ? chunks.filter(chunk => questionHasEvidence(quiz.topic, [chunk])) : chunks);
+                const answer = questions.length
+                    ? `Fill in the blanks using your selected PDFs:\n\n${questions.map((item, i) => `${i + 1}. ${item.prompt} [${item.source}]`).join('\n\n')}\n\nAnswer key:\n${questions.map((item, i) => `${i + 1}. ${item.answer} [${item.source}]`).join('\n')}`
+                    : 'I could not find enough complete sentences to make a quiz from the selected PDFs. Try another text-based PDF.';
+                saveChatMessage(session, conversationId, message, answer);
+                if (stream === true) {
+                    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+                    res.write(`${JSON.stringify({ type: 'delta', content: answer })}\n`);
+                    return res.end(`${JSON.stringify({ type: 'done', answer, mode })}\n`);
+                }
+                return res.json({ answer, mode });
+            }
+            if ((quiz && quiz.topic) || (!quiz && !questionHasEvidence(message, chunks))) {
                 const answer = 'I cannot answer that from the selected PDFs. Ask about their contents or choose another source.';
                 saveChatMessage(session, conversationId, message, answer);
                 if (stream === true) {
