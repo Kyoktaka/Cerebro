@@ -11,12 +11,13 @@ const {
     readChatStream
 } = require('../local-ai');
 
-test('model validation accepts latest tags and rejects missing or embedding-only models', () => {
-    const models = [{ name: 'llama3.2:latest' }, { name: 'nomic-embed-text:latest' }];
+test('model validation accepts installed tags and rejects missing or cloud models', () => {
+    const models = [{ name: 'llama3.2:latest' }, { name: 'qwen2.5-coder:3b' }, { name: 'nomic-embed-text:latest' }];
     assert.equal(modelMatches('llama3.2', 'llama3.2:latest'), true);
     assert.equal(installedModel(models, 'llama3.2'), 'llama3.2:latest');
+    assert.equal(installedModel(models, 'qwen2.5-coder:3b'), 'qwen2.5-coder:3b');
     assert.throws(() => installedModel(models, 'mistral'), /ollama pull mistral/);
-    assert.throws(() => installedModel(models, 'nomic-embed-text'), /embedding model/);
+    assert.equal(installedModel(models, 'nomic-embed-text'), 'nomic-embed-text:latest');
     assert.throws(() => installedModel(models, 'remote:cloud'), /Cloud models are unavailable/);
 });
 
@@ -53,17 +54,17 @@ test('embedding requests use the current batch endpoint', async () => {
     }
 });
 
-test('model picker excludes embedding-only models by reported capability', async () => {
+test('model picker includes every completion model and excludes embedding-only models', async () => {
     const originalFetch = global.fetch;
     global.fetch = async (url, options) => {
         assert.ok(url.endsWith('/api/show'));
         const { model } = JSON.parse(options.body);
-        const capabilities = model === 'llama3.2:latest' ? ['completion'] : ['embedding'];
+        const capabilities = model === 'other-embed:latest' ? ['embedding'] : ['completion', 'embedding'];
         return new Response(JSON.stringify({ capabilities }), { status: 200 });
     };
     try {
-        const models = [{ name: 'llama3.2:latest' }, { name: 'other-embed:latest' }];
-        assert.deepEqual(await modelsWithCapability(models, 'completion'), [{ name: 'llama3.2:latest' }]);
+        const models = [{ name: 'llama3.2:latest' }, { name: 'custom-dual:7b' }, { name: 'other-embed:latest' }];
+        assert.deepEqual(await modelsWithCapability(models, 'completion'), [{ name: 'llama3.2:latest' }, { name: 'custom-dual:7b' }]);
         await assert.rejects(() => requireCapability('other-embed:latest', 'completion'), /does not support completion/);
     } finally {
         global.fetch = originalFetch;

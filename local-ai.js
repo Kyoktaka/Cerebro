@@ -84,7 +84,7 @@ async function requireCapability(model, capability) {
     }
 }
 
-function installedModel(models, name, purpose = 'chat') {
+function installedModel(models, name) {
     if (typeof name !== 'string' || !name.trim()) {
         throw new OllamaError('Select a model.', 400);
     }
@@ -94,9 +94,6 @@ function installedModel(models, name, purpose = 'chat') {
     const match = models.find(item => modelMatches(name, item.name));
     if (!match) {
         throw new OllamaError(`Model "${name}" is not installed. Run: ollama pull ${name}`, 422);
-    }
-    if (purpose === 'chat' && modelMatches(OLLAMA_EMBED_MODEL, match.name)) {
-        throw new OllamaError(`"${name}" is an embedding model. Select a chat model.`, 422);
     }
     return match.name;
 }

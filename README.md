@@ -14,6 +14,8 @@ Cerebro is a local PDF chat app. It extracts text from your PDFs, finds relevant
 
    `llama3.2` is the default chat model. `nomic-embed-text` handles PDF search and cannot answer chat questions. Cerebro lists only locally pulled chat models; Ollama cloud models are excluded. See their [chat model](https://ollama.com/library/llama3.2) and [embedding model](https://ollama.com/library/nomic-embed-text) pages for sizes and alternatives.
 
+   To test with [Qwen 2.5 Coder 3B](https://ollama.com/library/qwen2.5-coder:3b), run `ollama pull qwen2.5-coder:3b` and select it in Cerebro. There is no model whitelist: every locally pulled model that Ollama reports as chat-capable appears in the picker. Embedding-only models cannot answer chat questions. PDF study still needs a separate embedding-capable model.
+
 3. Clone Cerebro and install its dependencies:
 
    ```sh
@@ -53,6 +55,7 @@ OLLAMA_NUM_CTX=8192
 - Upload up to 10 PDFs per conversation, at most 10 MB each. Extracted text across the conversation is limited to 1,000,000 characters.
 - Select which uploaded PDFs to focus on, remove a PDF, or exit PDF mode. With no active PDF, Cerebro uses general chat.
 - Answers stream into the chat as the local model generates them. Conversations are saved locally so you can return to them.
+- Use the theme button in the header to switch between light and dark mode. Cerebro remembers your choice; before you choose, it follows your system theme.
 
 PDF retrieval narrows the material sent to the chat model, but generated answers can still be wrong. Check important answers against the original documents. Image-only or scanned PDFs need OCR before Cerebro can read their text.
 

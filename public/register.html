@@ -2,73 +2,41 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-    <title>Cerebro | Register</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>Create an account | Cerebro</title>
+    <script src="js/theme.js"></script>
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
-    <!-- Back Button -->
-    <a href="index.html" class="back-home">
-        <i class="fas fa-arrow-left"></i> Back
-    </a>
-    
-    <div class="auth-wrapper">
+<body class="auth-page">
+    <a class="skip-link" href="#main">Skip to registration</a>
+    <header class="auth-topbar">
+        <a href="index.html" class="auth-brand"><span class="logo-mark"><i class="fas fa-brain" aria-hidden="true"></i></span><span>Cerebro</span></a>
+        <button class="theme-toggle" type="button" data-theme-toggle><i class="fas fa-moon" aria-hidden="true"></i><span data-theme-label>Dark mode</span></button>
+    </header>
+    <main class="auth-wrapper" id="main">
         <div class="auth-container">
-            <div class="auth-card" style="max-width: 450px;">
-                <div class="auth-header">
-                    <i class="fas fa-brain"></i>
-                    <h1>Create Account</h1>
-                    <p>Join Cerebro today</p>
-                </div>
-                
-                <div id="errorMessage" class="error-message"></div>
-                
+            <a href="index.html" class="back-home"><i class="fas fa-arrow-left" aria-hidden="true"></i> Home</a>
+            <section class="auth-card">
+                <div class="auth-header"><p class="kicker">Start locally</p><h1>Create your account.</h1><p>Keep your study conversations on this computer.</p></div>
+                <div id="errorMessage" class="error-message" role="alert" aria-live="assertive"></div>
                 <form id="registerForm">
                     <div class="row">
-                        <div class="input-group">
-                            <i class="fas fa-user"></i>
-                            <input type="text" id="firstName" placeholder="First Name" required>
-                        </div>
-                        <div class="input-group">
-                            <i class="fas fa-user-tag"></i>
-                            <input type="text" id="lastName" placeholder="Last Name (Username)" required>
-                        </div>
+                        <div class="input-group"><label for="firstName">First name</label><input type="text" id="firstName" name="firstName" autocomplete="given-name" required></div>
+                        <div class="input-group"><label for="lastName">Last name (username)</label><input type="text" id="lastName" name="lastName" autocomplete="family-name" required></div>
                     </div>
-                    
-                    <div class="username-note">
-                        <small>
-                            <i class="fas fa-info-circle"></i> Note: If your last name is common, add your middle initial (e.g., SantosJ)
-                        </small>
-                    </div>
-                    
-                    <div class="input-group">
-                        <i class="fas fa-envelope"></i>
-                        <input type="email" id="email" placeholder="Email Address" required>
-                    </div>
-                    
-                    <div class="input-group">
-                        <i class="fas fa-lock"></i>
-                        <input type="password" id="password" placeholder="Password" required>
-                        <i class="fas fa-eye-slash toggle-password" data-target="password"></i>
-                    </div>
-                    
-                    <div class="input-group">
-                        <i class="fas fa-lock"></i>
-                        <input type="password" id="confirmPassword" placeholder="Confirm Password" required>
-                        <i class="fas fa-eye-slash toggle-password" data-target="confirmPassword"></i>
-                    </div>
-                    
-                    <button type="submit" class="btn-auth">Create Account</button>
+                    <p class="username-note">If your last name is common, add an initial to make the username unique.</p>
+                    <div class="input-group"><label for="email">Email address</label><input type="email" id="email" name="email" autocomplete="email" required></div>
+                    <div class="input-group"><label for="password">Password</label><div class="password-field"><input type="password" id="password" name="password" autocomplete="new-password" minlength="6" required><button type="button" class="toggle-password" data-target="password" aria-label="Show password" aria-pressed="false">Show</button></div></div>
+                    <div class="input-group"><label for="confirmPassword">Confirm password</label><div class="password-field"><input type="password" id="confirmPassword" name="confirmPassword" autocomplete="new-password" minlength="6" required><button type="button" class="toggle-password" data-target="confirmPassword" aria-label="Show password" aria-pressed="false">Show</button></div></div>
+                    <button type="submit" class="btn-auth">Create account</button>
                 </form>
-                
-                <div class="auth-footer">
-                    Already have an account? <a href="login.html">Login</a>
-                </div>
-            </div>
+                <p class="auth-security-note">Use a password you do not use elsewhere.</p>
+                <p class="auth-footer">Already have an account? <a href="login.html">Sign in</a></p>
+            </section>
         </div>
-    </div>
-    
+    </main>
     <script src="js/auth.js"></script>
 </body>
 </html>

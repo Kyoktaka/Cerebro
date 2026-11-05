@@ -1,159 +1,106 @@
-console.log(' auth.js loaded');
-
 const API_BASE_URL = window.location.origin + '/api';
 
-// Toggle password visibility
-document.querySelectorAll('.toggle-password').forEach(icon => {
-    icon.addEventListener('click', function () {
-        const targetId = this.getAttribute('data-target');
-        const input = targetId ? document.getElementById(targetId) : this.previousElementSibling;
-        if (input && input.type === 'password') {
-            input.type = 'text';
-            this.classList.remove('fa-eye-slash');
-            this.classList.add('fa-eye');
-        } else if (input) {
-            input.type = 'password';
-            this.classList.remove('fa-eye');
-            this.classList.add('fa-eye-slash');
-        }
+document.querySelectorAll('.toggle-password').forEach(button => {
+    button.addEventListener('click', () => {
+        const input = document.getElementById(button.dataset.target);
+        if (!input) return;
+        const visible = input.type === 'password';
+        input.type = visible ? 'text' : 'password';
+        button.textContent = visible ? 'Hide' : 'Show';
+        button.setAttribute('aria-label', visible ? 'Hide password' : 'Show password');
+        button.setAttribute('aria-pressed', String(visible));
     });
 });
 
-// Login Form
+if (new URLSearchParams(window.location.search).has('registered')) {
+    const success = document.getElementById('successMessage');
+    if (success) success.hidden = false;
+}
+
 const loginForm = document.getElementById('loginForm');
 if (loginForm) {
-    console.log(' Login form found');
-    loginForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-
-        const username = document.getElementById('username').value;
+    loginForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        const username = document.getElementById('username').value.trim();
         const password = document.getElementById('password').value;
-
-        console.log('Attempting login:', username);
-
+        const submit = loginForm.querySelector('[type="submit"]');
+        submit.disabled = true;
         try {
-            const response = await fetch(`${API_BASE_URL}/auth/login`, {
+            const response = await fetch(API_BASE_URL + '/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
             });
-
             const result = await response.json();
-            console.log('Login response:', result);
-
-            if (response.ok) {
-                localStorage.setItem('cerebro_session', result.sessionId);
-                localStorage.setItem('cerebro_user', JSON.stringify(result.user));
-                window.location.href = 'chat.html';
-            } else {
-                showError(result.error || 'Invalid credentials');
-            }
+            if (!response.ok) throw new Error(result.error || 'Could not sign in.');
+            localStorage.setItem('cerebro_session', result.sessionId);
+            localStorage.setItem('cerebro_user', JSON.stringify(result.user));
+            window.location.href = 'chat.html';
         } catch (error) {
-            console.error('Login error:', error);
-            showError('Cannot connect to server. Make sure backend is running.');
+            showError(error.message || 'Cannot connect to Cerebro. Start the local server.');
+        } finally {
+            submit.disabled = false;
         }
     });
-} else {
-    console.log(' Login form NOT found');
 }
 
-// Register Form
 const registerForm = document.getElementById('registerForm');
 if (registerForm) {
-    console.log(' Register form found');
-
-    registerForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-
-        console.log('Register form submitted');
-
-        const firstName = document.getElementById('firstName').value;
-        const lastName = document.getElementById('lastName').value;
-        const email = document.getElementById('email').value;
+    registerForm.addEventListener('submit', async event => {
+        event.preventDefault();
+        const firstName = document.getElementById('firstName').value.trim();
+        const lastName = document.getElementById('lastName').value.trim();
+        const email = document.getElementById('email').value.trim();
         const password = document.getElementById('password').value;
         const confirm = document.getElementById('confirmPassword').value;
+        if (password !== confirm) return showError('Passwords do not match.');
+        if (password.length < 6) return showError('Password must be at least 6 characters.');
 
-        console.log('Form data:', { firstName, lastName, email });
-
-        if (password !== confirm) {
-            showError('Passwords do not match');
-            return;
-        }
-
-        if (password.length < 6) {
-            showError('Password must be at least 6 characters');
-            return;
-        }
-
-        const data = {
-            firstName: firstName,
-            lastName: lastName,
-            email: email,
-            password: password
-        };
-
+        const submit = registerForm.querySelector('[type="submit"]');
+        submit.disabled = true;
         try {
-            console.log('Sending registration request to:', `${API_BASE_URL}/auth/register`);
-
-            const response = await fetch(`${API_BASE_URL}/auth/register`, {
+            const response = await fetch(API_BASE_URL + '/auth/register', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
+                body: JSON.stringify({ firstName, lastName, email, password })
             });
-
             const result = await response.json();
-            console.log('Registration response:', result);
-
-            if (response.ok) {
-                alert('Registration successful! Please login.');
-                console.log('Redirecting to login.html');
-                window.location.href = 'login.html';
-            } else {
-                showError(result.error || 'Registration failed');
-            }
+            if (!response.ok) throw new Error(result.error || 'Could not create the account.');
+            window.location.href = 'login.html?registered=1';
         } catch (error) {
-            console.error('Register error:', error);
-            showError('Cannot connect to server. Make sure backend is running.');
+            showError(error.message || 'Cannot connect to Cerebro. Start the local server.');
+        } finally {
+            submit.disabled = false;
         }
     });
-} else {
-    console.log(' Register form NOT found');
 }
 
-// Forgot Password
 const forgotLink = document.getElementById('forgotPassword');
 if (forgotLink) {
-    forgotLink.addEventListener('click', async (e) => {
-        e.preventDefault();
-        const username = prompt('Enter your last name:');
+    forgotLink.addEventListener('click', async () => {
+        const username = prompt('Enter your last name (username):');
         if (!username) return;
-
         try {
-            const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+            const response = await fetch(API_BASE_URL + '/auth/forgot-password', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ lastName: username })
+                body: JSON.stringify({ lastName: username.trim() })
             });
-
             const result = await response.json();
-            if (response.ok) {
-                alert(`Your password is: ${result.password}`);
-            } else {
-                alert(result.error || 'User not found');
-            }
-        } catch (error) {
-            alert('Cannot connect to server');
+            if (response.ok) alert('Your password is: ' + result.password);
+            else showError(result.error || 'Account not found.');
+        } catch {
+            showError('Cannot connect to Cerebro. Start the local server.');
         }
     });
 }
 
+let errorTimer;
 function showError(message) {
     const errorDiv = document.getElementById('errorMessage');
-    if (errorDiv) {
-        errorDiv.textContent = message;
-        errorDiv.style.display = 'block';
-        setTimeout(() => errorDiv.style.display = 'none', 3000);
-    } else {
-        alert(message);
-    }
+    if (!errorDiv) return;
+    clearTimeout(errorTimer);
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+    errorTimer = setTimeout(() => { errorDiv.style.display = 'none'; }, 6000);
 }

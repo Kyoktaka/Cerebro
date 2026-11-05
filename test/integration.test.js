@@ -85,7 +85,7 @@ test('local model discovery, streamed chat, PDF focus, and persisted index', asy
         app = await startCerebro(port, ollamaPort);
         const models = await (await fetch(`${base}/api/models`)).json();
         assert.equal(models.available, true);
-        assert.deepEqual(models.models.map(model => model.name), ['llama3.2:latest']);
+        assert.deepEqual(models.models.map(model => model.name), ['llama3.2:latest', 'qwen2.5-coder:3b']);
         assert.equal(models.embeddingAvailable, true);
         assert.equal((await fetch(`${base}/vendor/fontawesome/css/all.min.css`)).status, 200);
 
@@ -107,6 +107,9 @@ test('local model discovery, streamed chat, PDF focus, and persisted index', asy
         assert.ok(general.some(event => event.type === 'delta'));
         assert.equal(general.at(-1).mode, 'normal');
         assert.equal(general.at(-1).answer, 'Local chat works.');
+        const qwen = await streamChat(base, { message: 'Explain a loop', sessionId, conversationId, model: 'qwen2.5-coder:3b' });
+        assert.equal(qwen.at(-1).answer, 'Local chat works.');
+        assert.equal(requests.at(-1).model, 'qwen2.5-coder:3b');
 
         const form = new FormData();
         form.append('files', new Blob([makePdf('Alpha document explains cells.')], { type: 'application/pdf' }), 'alpha.pdf');
