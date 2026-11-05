@@ -20,7 +20,7 @@
 }
 
 body {
-    font-family: 'Inter', sans-serif;
+    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
     background: linear-gradient(135deg, var(--dark-bg), var(--darker-bg));
     background-attachment: fixed;
     color: var(--text-light);
@@ -132,6 +132,14 @@ body.menu-open {
     flex-direction: column;
     cursor: pointer;
     z-index: 1001;
+    border: 0;
+    background: transparent;
+    padding: 0.35rem;
+}
+
+.hamburger:focus-visible {
+    outline: 2px solid var(--secondary-color);
+    outline-offset: 2px;
 }
 
 .hamburger span {

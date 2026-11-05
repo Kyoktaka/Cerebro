@@ -133,9 +133,22 @@
 .conversation-info {
     flex: 1;
     overflow: hidden;
+    background: none;
+    border: none;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.conversation-info:focus-visible,
+.conv-edit:focus-visible,
+.conv-delete:focus-visible {
+    outline: 2px solid var(--secondary-color);
+    outline-offset: 2px;
 }
 
 .conversation-title {
+    display: block;
     font-size: 0.85rem;
     font-weight: 500;
     white-space: nowrap;
@@ -144,6 +157,7 @@
 }
 
 .conversation-date {
+    display: block;
     font-size: 0.7rem;
     color: var(--text-muted);
     margin-top: 0.2rem;
@@ -270,7 +284,80 @@
 
 .chat-title {
     flex: 1;
+    font-size: 1rem;
     font-weight: 500;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.model-control {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.model-control label {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.model-control select {
+    max-width: 190px;
+    min-width: 110px;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--dark-bg);
+    color: var(--text-light);
+    font: inherit;
+    cursor: pointer;
+}
+
+.model-control select:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+
+.model-control select:focus-visible,
+.ollama-status button:focus-visible,
+.send-btn:focus-visible {
+    outline: 2px solid var(--secondary-color);
+    outline-offset: 2px;
+}
+
+.ollama-status {
+    min-height: 42px;
+    padding: 0.55rem 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--dark-bg);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    font-size: 0.82rem;
+}
+
+.ollama-status[data-state="error"] {
+    color: var(--text-light);
+}
+
+.ollama-status button {
+    border: 1px solid var(--secondary-color);
+    border-radius: 6px;
+    padding: 0.3rem 0.6rem;
+    background: transparent;
+    color: var(--secondary-color);
+    font: inherit;
+    cursor: pointer;
+}
+
+.ollama-status button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 /*CHAT MESSAGES*/
@@ -374,6 +461,7 @@
     margin-left: 0.5rem;
     font-size: 0.7rem;
     background: rgba(76, 175, 80, 0.3);
+    color: var(--text-light);
     padding: 0.2rem 0.5rem;
     border-radius: 20px;
 }
@@ -388,6 +476,12 @@
     align-items: center;
     gap: 0.8rem;
     flex-wrap: wrap;
+}
+
+.chat-message-label {
+    flex-basis: 100%;
+    color: var(--text-muted);
+    font-size: 0.78rem;
 }
 
 .input-actions {
@@ -412,6 +506,11 @@
 
 .upload-btn:hover {
     background: rgba(255, 215, 0, 0.1);
+}
+
+.upload-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 .upload-options {
@@ -498,6 +597,12 @@
     transform: scale(1.05);
 }
 
+.send-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+}
+
 /* MODAL */
 .modal {
     position: fixed;
@@ -521,8 +626,14 @@
     border: 1px solid var(--border-color);
 }
 
-.modal-content h3 {
+.modal-content h2 {
     margin-bottom: 1rem;
+    font-size: 1.15rem;
+}
+
+.modal-content label {
+    display: block;
+    margin-bottom: 0.4rem;
 }
 
 .modal-content input {
@@ -588,6 +699,15 @@
 
     .chat-header {
         padding: 0.8rem 1rem;
+        flex-wrap: wrap;
+    }
+
+    .model-control {
+        margin-left: auto;
+    }
+
+    .ollama-status {
+        padding: 0.55rem 1rem;
     }
 
     .chat-input-area {
@@ -628,6 +748,19 @@
 }
 
 @media (max-width: 480px) {
+    .chat-title {
+        flex-basis: calc(100% - 3rem);
+    }
+
+    .model-control {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .model-control select {
+        max-width: none;
+        flex: 1;
+    }
     .chat-input-area {
         flex-wrap: wrap;
         gap: 0.5rem;
@@ -697,23 +830,9 @@
     }
 }
 
-.status-content i.fa-circle-notch {
-    animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-    from {
-        transform: rotate(0deg);
-    }
-
-    to {
-        transform: rotate(360deg);
-    }
-}
-
 /* PDF Mode Badge */
 .pdf-mode-badge {
-    background: #4caf50;
+    background: #216c37;
     color: white;
     padding: 0.3rem 0.8rem;
     border-radius: 20px;
@@ -723,7 +842,6 @@
     align-items: center;
     gap: 0.4rem;
     margin-left: auto;
-    animation: badgePop 0.3s ease;
     box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.5);
 }
 
@@ -763,7 +881,7 @@
     align-items: center;
     gap: 0.5rem;
     font-size: 0.85rem;
-    color: #4caf50;
+    color: #b1ebba;
     flex-wrap: wrap;
 }
 
@@ -774,7 +892,7 @@
 .exit-study-mode {
     background: rgba(244, 67, 54, 0.15);
     border: 1px solid rgba(244, 67, 54, 0.3);
-    color: #f44336;
+    color: #ff8a80;
     cursor: pointer;
     padding: 0.3rem 0.8rem;
     border-radius: 20px;
@@ -787,7 +905,7 @@
 
 .exit-study-mode:hover {
     background: rgba(244, 67, 54, 0.3);
-    color: #ff6659;
+    color: #ffb4ad;
 }
 
 /* PDF CHIPS & MANAGER PANEL */
@@ -797,10 +915,11 @@
     gap: 0.3rem;
     background: rgba(76, 175, 80, 0.2);
     border: 1px solid rgba(76, 175, 80, 0.4);
-    color: #4caf50;
+    color: #b1ebba;
     padding: 0.2rem 0.6rem;
     border-radius: 20px;
     font-size: 0.75rem;
+    font-family: inherit;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
@@ -815,6 +934,12 @@
     background: rgba(76, 175, 80, 0.35);
     border-color: #4caf50;
     transform: translateY(-1px);
+}
+
+.pdf-chip-waiting {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: var(--text-muted);
+    color: var(--text-light);
 }
 
 .pdf-chip i {
@@ -832,6 +957,7 @@
     padding: 0.2rem 0.7rem;
     border-radius: 20px;
     font-size: 0.75rem;
+    font-family: inherit;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
@@ -842,6 +968,23 @@
 .pdf-manage-btn:hover {
     background: rgba(255, 215, 0, 0.28);
     border-color: var(--secondary-color);
+}
+
+.pdf-chip:focus-visible,
+.pdf-manage-btn:focus-visible,
+.upload-btn:focus-visible {
+    outline: 2px solid var(--secondary-color);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .pdf-chip,
+    .pdf-manage-btn,
+    .pdf-manager-panel,
+    .send-btn {
+        animation: none;
+        transition: none;
+    }
 }
 
 .pdf-manager-panel {
@@ -981,7 +1124,7 @@
 
 .pdf-select-all-btn {
     border-color: rgba(33, 150, 243, 0.3);
-    color: #2196f3;
+    color: #8fc9ff;
 }
 
 .pdf-select-all-btn:hover {
@@ -991,7 +1134,7 @@
 
 .pdf-apply-btn {
     border-color: rgba(76, 175, 80, 0.3);
-    color: #4caf50;
+    color: #b1ebba;
 }
 
 .pdf-apply-btn:hover {
@@ -1001,7 +1144,7 @@
 
 .pdf-delete-btn {
     border-color: rgba(244, 67, 54, 0.3);
-    color: #f44336;
+    color: #ff8a80;
 }
 
 .pdf-delete-btn:hover {
@@ -1011,7 +1154,7 @@
 
 .pdf-panel-error {
     font-size: 0.75rem;
-    color: #f44336;
+    color: #ff8a80;
     margin: 0;
     text-align: center;
     animation: fadeIn 0.2s ease;

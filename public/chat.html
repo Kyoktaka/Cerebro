@@ -4,21 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Cerebro | Chat</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/chat.css">
 </head>
 <body>
     <div class="chat-layout">
         <!-- Sidebar -->
-        <div class="chat-sidebar" id="chatSidebar">
+        <aside class="chat-sidebar" id="chatSidebar">
             <div class="sidebar-header">
                 <div class="logo">
                     <i class="fas fa-brain"></i>
                     <span>Cerebro</span>
                 </div>
-                <button class="close-sidebar" id="closeSidebarBtn">
+                <button class="close-sidebar" id="closeSidebarBtn" aria-label="Close sidebar">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
@@ -55,26 +54,34 @@
                     <i class="fas fa-trash-alt"></i> Delete Account
                 </button>
             </div>
-        </div>
+        </aside>
         
         <!-- Main Chat Area -->
-        <div class="chat-main">
-            <div class="chat-header">
-                <button class="menu-toggle" id="menuToggle">
+        <main class="chat-main">
+            <header class="chat-header">
+                <button class="menu-toggle" id="menuToggle" aria-label="Open sidebar" aria-controls="chatSidebar" aria-expanded="false">
                     <i class="fas fa-bars"></i>
                 </button>
-                <div class="chat-title" id="chatTitle">New Conversation</div>
+                <h1 class="chat-title" id="chatTitle">New Conversation</h1>
                 <!-- PDF Mode Badge — only visible when a PDF is loaded -->
                 <div id="pdfModeBadge" class="pdf-mode-badge" style="display: none;">
                     <i class="fas fa-file-pdf"></i> PDF Mode
                 </div>
+                <div class="model-control">
+                    <label for="ollamaModel">Model</label>
+                    <select id="ollamaModel" disabled><option>Checking Ollama...</option></select>
+                </div>
+            </header>
+            <div class="ollama-status" id="ollamaStatus" role="status" aria-live="polite" data-state="loading">
+                <span id="ollamaStatusText">Checking Ollama...</span>
+                <button type="button" id="retryOllamaBtn">Refresh models</button>
             </div>
             
             <!-- Study Mode Bar (Shows when PDF is loaded) -->
             <div id="studyModeBar" class="study-mode-bar" style="display: none;">
                 <div class="study-mode-info">
                     <i class="fas fa-file-pdf"></i>
-                    <span>📄 PDF Loaded:</span>
+                    <span>PDFs:</span>
                     <span id="pdfFileName"></span>
                     <span id="pdfCounter" class="pdf-counter"></span>
                 </div>
@@ -87,13 +94,14 @@
                 <div class="welcome-message">
                     <i class="fas fa-brain"></i>
                     <h2>Welcome to Cerebro</h2>
-                    <p>I'm your AI study assistant. Upload a PDF to get started!</p>
+                    <p>Choose a local model, then ask a question or upload a PDF.</p>
                 </div>
             </div>
             
             <div class="chat-input-area">
+                <label class="chat-message-label" for="chatInput">Message</label>
                 <div class="input-actions">
-                    <button class="upload-btn" id="uploadBtn">
+                    <button class="upload-btn" id="uploadBtn" aria-label="Upload a PDF">
                         <i class="fas fa-paperclip"></i>
                     </button>
                     <div class="upload-options" id="uploadOptions">
@@ -104,19 +112,20 @@
                 </div>
                 <div class="chat-input-wrapper">
                     <input type="text" class="chat-input" id="chatInput" placeholder="Ask me anything..." autocomplete="off">
-                    <button class="send-btn" id="sendBtn">
+                    <button class="send-btn" id="sendBtn" aria-label="Send message" disabled>
                         <i class="fas fa-paper-plane"></i>
                     </button>
                 </div>
                 <input type="file" id="fileInput" accept=".pdf" multiple style="display: none;">
             </div>
-        </div>
+        </main>
     </div>
     
     <!-- Edit Conversation Modal -->
-    <div id="editModal" class="modal" style="display: none;">
+    <div id="editModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editModalTitle" style="display: none;">
         <div class="modal-content">
-            <h3>Edit Conversation Title</h3>
+            <h2 id="editModalTitle">Edit Conversation Title</h2>
+            <label for="editTitleInput">Title</label>
             <input type="text" id="editTitleInput" placeholder="Enter new title">
             <div class="modal-buttons">
                 <button id="saveEditBtn">Save</button>

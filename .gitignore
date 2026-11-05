@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
 
 # Environment variables
 .env
@@ -10,6 +9,7 @@ uploads/
 
 # User data
 users/
+indexes/
 
 # Logs
 *.log

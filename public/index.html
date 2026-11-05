@@ -4,8 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Cerebro | AI Study Assistant</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -24,11 +23,11 @@
                 <a href="login.html" class="btn-login">Login</a>
                 <a href="register.html" class="btn-register">Register</a>
             </div>
-            <div class="hamburger" id="hamburger">
+            <button type="button" class="hamburger" id="hamburger" aria-label="Open menu" aria-controls="navMenu" aria-expanded="false">
                 <span></span>
                 <span></span>
                 <span></span>
-            </div>
+            </button>
         </div>
     </nav>
 
@@ -36,14 +35,14 @@
         <div class="container">
             <div class="hero-content">
                 <h1><i class="fas fa-brain"></i> Cerebro</h1>
-                <p class="subtitle">Your Smart AI Study Assistant</p>
-                <p class="description">Upload your PDFs, ask questions, get summaries, and generate practice quizzes—all from your documents.</p>
+                <p class="subtitle">Study PDFs with local models</p>
+                <p class="description">Run Cerebro with your own Ollama models. Upload PDFs, ask questions, and study your documents locally.</p>
                 <div class="hero-buttons" id="heroButtons">
                     <a href="register.html" class="btn btn-primary">
-                        <i class="fas fa-user-plus"></i> Get Started
+                        <i class="fas fa-user-plus"></i> Create Account
                     </a>
                     <a href="about.html" class="btn btn-secondary">
-                        <i class="fas fa-info-circle"></i> Learn More
+                        <i class="fas fa-info-circle"></i> How Cerebro Works
                     </a>
                 </div>
             </div>
@@ -52,17 +51,17 @@
 
     <section class="features">
         <div class="container">
-            <h2 class="section-title">Why Cerebro?</h2>
+            <h2 class="section-title">What you can do</h2>
             <div class="features-grid">
                 <div class="feature-card">
                     <div class="feature-icon"><i class="fas fa-file-pdf"></i></div>
                     <h3>PDF Study Mode</h3>
-                    <p>Upload your course materials and get answers based strictly on your documents.</p>
+                    <p>Upload course materials and ask questions using relevant passages from your documents.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="feature-icon"><i class="fas fa-star"></i></div>
+                    <div class="feature-icon"><i class="fas fa-list-alt"></i></div>
                     <h3>Summaries & Quizzes</h3>
-                    <p>Generate study guides and practice questions instantly from your PDFs.</p>
+                    <p>Ask your local model for summaries, study guides, and practice questions.</p>
                 </div>
             </div>
         </div>
