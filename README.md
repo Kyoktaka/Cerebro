@@ -54,10 +54,10 @@ OLLAMA_NUM_CTX=8192
 - Upload a text-based PDF in a conversation. Cerebro extracts the text locally, divides it into passages, and embeds the passages through Ollama. Questions search those passages before the chat model responds.
 - Upload up to 10 PDFs per conversation, at most 10 MB each. Extracted text across the conversation is limited to 1,000,000 characters.
 - Select which uploaded PDFs to focus on, remove a PDF, or exit PDF mode. With no active PDF, Cerebro uses general chat.
-- Answers stream into the chat as the local model generates them. Conversations are saved locally so you can return to them.
-- Use the theme button in the header to switch between light and dark mode. Cerebro remembers your choice; before you choose, it follows your system theme.
+- General chat answers stream from the local model. With PDFs selected, Cerebro returns verbatim passages with source names and refuses questions whose key words are absent. Conversations are saved locally.
+- Use the theme button in the header to switch between light and dark mode. Cerebro remembers your choice and starts in dark mode.
 
-PDF retrieval narrows the material sent to the chat model, but generated answers can still be wrong. Check important answers against the original documents. Image-only or scanned PDFs need OCR before Cerebro can read their text.
+PDF answers quote retrieved text rather than generating a summary. Word matching can miss paraphrases, and a matching passage may not fully answer the question. Check the original documents. Image-only or scanned PDFs need OCR before Cerebro can read their text.
 
 Account and conversation records live in `users/`; PDF search indexes live in `indexes/`. These directories are local and ignored by Git. Passwords are stored in plaintext, and the password recovery endpoint can return them. Use a unique password and do not expose Cerebro to the public internet.
 

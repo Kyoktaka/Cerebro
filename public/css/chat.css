@@ -124,12 +124,12 @@ body.sidebar-collapsed .menu-toggle { display: inline-grid; }
 .pdf-delete-btn:hover { background: var(--danger-soft); }
 .pdf-panel-error { margin: 0; color: var(--danger); font-size: 0.83rem; font-weight: 650; }
 
-.chat-messages { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: clamp(25px, 4vw, 48px) clamp(18px, 3vw, 42px) 44px; }
+.chat-messages { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px clamp(16px, 3vw, 32px) 24px; }
 .welcome-message { width: min(100%, 780px); margin: clamp(36px, 10vh, 110px) auto 0; }
 .welcome-kicker { margin-bottom: 14px; color: var(--accent); font-size: 0.76rem; font-weight: 750; letter-spacing: 0.1em; text-transform: uppercase; }
 .welcome-message h2 { max-width: 17ch; margin-bottom: 18px; font-size: clamp(2.35rem, 4.5vw, 4rem); }
 .welcome-message > p:last-child { max-width: 46ch; color: var(--muted); font-size: 1rem; }
-.message { display: flex; width: min(100%, 820px); margin: 0 auto 18px; }
+.message { display: flex; width: min(100%, 820px); margin: 0 auto 12px; }
 .message.user { justify-content: flex-end; }
 .message-content { max-width: min(88%, 660px); padding: 13px 17px; border: 1px solid var(--line); border-radius: 12px 12px 12px 3px; background: var(--surface); color: var(--ink); line-height: 1.6; overflow-wrap: anywhere; }
 .message.user .message-content { max-width: min(80%, 610px); border-color: var(--action); border-radius: 12px 12px 3px 12px; background: var(--action); color: var(--action-ink); }

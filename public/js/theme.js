@@ -1,6 +1,5 @@
 (() => {
     const key = 'cerebro_theme';
-    const preference = window.matchMedia('(prefers-color-scheme: dark)');
 
     function savedTheme() {
         try {
@@ -23,7 +22,7 @@
         });
     }
 
-    applyTheme(savedTheme() || (preference.matches ? 'dark' : 'light'));
+    applyTheme(savedTheme() || 'dark');
 
     document.addEventListener('DOMContentLoaded', () => {
         applyTheme(document.documentElement.dataset.theme);
@@ -38,7 +37,4 @@
         });
     });
 
-    preference.addEventListener('change', event => {
-        if (!savedTheme()) applyTheme(event.matches ? 'dark' : 'light');
-    });
 })();
