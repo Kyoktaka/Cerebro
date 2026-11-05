@@ -8,12 +8,14 @@ function closeMenu() {
     if (!navMenu || !hamburger) return;
     navMenu.classList.remove('active');
     hamburger.classList.remove('active');
+    hamburger.setAttribute('aria-expanded', 'false');
     document.body.classList.remove('menu-open');
 }
 
 function openMenu() {
     if (!navMenu || !hamburger) return;
     hamburger.classList.add('active');
+    hamburger.setAttribute('aria-expanded', 'true');
     navMenu.classList.add('active');
     document.body.classList.add('menu-open');
 }
@@ -29,6 +31,10 @@ if (hamburger) {
         }
     });
 }
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeMenu();
+});
 
 // Close menu when clicking outside
 document.addEventListener('click', (e) => {

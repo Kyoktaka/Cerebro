@@ -1,273 +1,86 @@
-# Cerebro: A PDF Chatbot Reviewer 
+# Cerebro
 
-<div align="center">
+Cerebro is a local PDF chat app. It extracts text from your PDFs, finds relevant passages with local embeddings, and sends your question and those passages to a model running in Ollama. General chat is also available when no PDF is active. No cloud API key is required.
 
-![Cerebro Banner](https://img.shields.io/badge/Cerebro-AI%20Study%20Assistant-gold?style=for-the-badge&logo=google&logoColor=white)
-![Version](https://img.shields.io/badge/version-1.0.0-blue?style=flat-square)
-![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)
-![Node](https://img.shields.io/badge/Node.js-18.x-339933?style=flat-square&logo=nodedotjs)
-![Gemini](https://img.shields.io/badge/Gemini-2.0%20Flash-4285F4?style=flat-square&logo=google)
+## Start locally
 
-**Your intelligent AI study assistant powered by Google Gemini**
+1. Install [Node.js 18 or later](https://nodejs.org/) and [Ollama](https://ollama.com/download).
+2. Pull a chat model and an embedding model:
 
-[Features](##features) • [Demo](##demo) • [Installation](##installation) • [Usage](##usage) • [Tech Stack](##tech-stack) • [Team](##team)
+   ```sh
+   ollama pull llama3.2
+   ollama pull nomic-embed-text
+   ```
 
-</div>
+   `llama3.2` is the default chat model. `nomic-embed-text` handles PDF search and cannot answer chat questions. Cerebro lists only locally pulled chat models; Ollama cloud models are excluded. See their [chat model](https://ollama.com/library/llama3.2) and [embedding model](https://ollama.com/library/nomic-embed-text) pages for sizes and alternatives.
 
+3. Clone Cerebro and install its dependencies:
 
-## 📖 About
+   ```sh
+   git clone https://github.com/Kyoktaka/Cerebro.git
+   cd Cerebro
+   npm install
+   ```
 
-Cerebro is a smart study assistant that allows you to upload PDF documents and ask questions based strictly on their content. Using Google's Gemini AI with a built-in **anti-hallucination engine**, Cerebro ensures that all answers come ONLY from your uploaded materials - no made-up information, no outside knowledge.
+4. Start Ollama if it is not already running, then start Cerebro:
 
-### Why Cerebro?
+   ```sh
+   npm start
+   ```
 
-| Problem | Cerebro Solution |
-|---------|------------------|
-| ❌ Generic AI answers from unknown sources | ✅ Answers strictly from YOUR documents |
-| ❌ Hallucinations and made-up facts | ✅ 5-rule anti-hallucination system |
-| ❌ Can't manage multiple documents | ✅ Upload up to 10 PDFs, focus on specific ones |
-| ❌ No chat history | ✅ Conversations saved automatically |
+5. Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Create a local account, open a chat, and select an installed chat model from the model picker.
 
----
+Ollama, the two models, Node.js, and npm dependencies must be installed while you have internet access. After that, normal local use does not need an internet connection. Ollama also offers cloud models; if you need to disable its cloud features, set `OLLAMA_NO_CLOUD=1` in Ollama's environment and restart Ollama. See [Ollama's local-only instructions](https://docs.ollama.com/faq#how-do-i-disable-ollamas-cloud-features).
 
-## ✨ Features
+## Configuration
 
-### 📄 PDF Management
-- **Upload** up to 10 PDF files (10MB max each)
-- **PDF Chips** - Clickable file names in study mode
-- **PDF Manager Panel** - Checkbox interface to manage documents
-- **Focus Mode** - Select which PDFs the AI should use
-- **Delete Individual PDFs** - Remove specific documents without clearing all
+Cerebro reads environment variables and an optional `.env` file in the project root. The defaults are:
 
-### 🛡️ Anti-Hallucination Engine
-Enforces 5 strict rules on every AI response:
-
-1. ✅ ONLY answer using PDF content
-2. ✅ NO outside knowledge or pre-trained data
-3. ✅ Answer in the same language as the user
-4. ✅ Summarize the document if asked
-5. ✅ Say "cannot answer" if information not in PDF
-
-### 💬 Chat Features
-- **Real-time conversations** with AI
-- **Conversation history** saved per user
-- **Auto-title** based on first message
-- **Edit/Delete** conversations
-- **PDF Mode indicator** (green bar + badge)
-
-### 🔐 Account Management
-- **Register** with first name, last name, email, password
-- **Login** with last name (username) and password
-- **Forgot Password** - retrieve password via username
-- **Delete Account** - permanently remove all user data
-
----
-
-## 🎥 Demo
-
-### Upload PDF & Ask Question
-
-```
-User: Uploads "Biology_Textbook.pdf"
-System: ✅ PDF Upload Complete!
-        📊 Stats: 1/10 PDFs | 45K characters
-        📚 PDF Mode active.
-
-User: "What is photosynthesis?"
-AI: "Based on your uploaded document 'Biology_Textbook.pdf', 
-     photosynthesis is the process by which plants convert 
-     sunlight into energy..."
-
-User: "What is the capital of France?"
-AI: "I cannot answer that based on your uploaded document. 
-     Your PDF is about biology. Please ask about the content 
-     of your PDF."
-```
-
-### PDF Manager Panel
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Manage PDFs (3/10)                                    [✕]  │
-├─────────────────────────────────────────────────────────────┤
-│  ✅ Biology_Textbook.pdf                                    │
-│  ☐ Chemistry_Notes.pdf                                      │
-│  ✅ Physics_Formulas.pdf                                    │
-├─────────────────────────────────────────────────────────────┤
-│  [Select All]  [Apply Focus]  [Delete Checked]              │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 🛠️ Tech Stack
-
-| Technology | Purpose |
-|------------|---------|
-| **HTML5** | Structure |
-| **CSS3** | Styling & animations |
-| **JavaScript (ES6+)** | Frontend logic |
-| **Node.js + Express** | Backend server |
-| **Google Gemini API** | AI language model |
-| **pdf-parse** | PDF text extraction |
-| **multer** | File upload handling |
-| **JSON File Storage** | User & conversation persistence |
-
----
-
-## 📦 Installation
-
-### Prerequisites
-
-- Node.js (v18 or higher)
-- Google Gemini API key ([Get one here](https://aistudio.google.com/))
-
-### Steps
-
-1. **Clone the repository**
-```bash
-git clone https://github.com/yourusername/cerebro.git
-cd cerebro
-```
-
-2. **Install dependencies**
-```bash
-npm install
-```
-
-3. **Set up environment variables**
-Create a `.env` file in the root directory:
 ```env
-GEMINI_API_KEY=your_gemini_api_key_here
+HOST=127.0.0.1
 PORT=8080
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.2
+OLLAMA_EMBED_MODEL=nomic-embed-text
+OLLAMA_NUM_CTX=8192
 ```
 
-4. **Start the server**
-```bash
-node server.js
-```
+`OLLAMA_BASE_URL` points to the Ollama instance Cerebro's Node server uses. `OLLAMA_MODEL` is the initial chat model; users can choose another pulled chat model in the app. `OLLAMA_EMBED_MODEL` is used for PDF indexing and search. `OLLAMA_NUM_CTX` sets the chat context window; 8192 tokens uses more memory than Ollama's default, so lower it on a constrained machine. Pull any model named here before use. Keep Cerebro and Ollama on a trusted machine or local network.
 
-5. **Open your browser**
-```
-http://localhost:8080
-```
+## Use Cerebro
 
-### Project Structure
+- Upload a text-based PDF in a conversation. Cerebro extracts the text locally, divides it into passages, and embeds the passages through Ollama. Questions search those passages before the chat model responds.
+- Upload up to 10 PDFs per conversation, at most 10 MB each. Extracted text across the conversation is limited to 1,000,000 characters.
+- Select which uploaded PDFs to focus on, remove a PDF, or exit PDF mode. With no active PDF, Cerebro uses general chat.
+- Answers stream into the chat as the local model generates them. Conversations are saved locally so you can return to them.
 
-```
-cerebro/
-├── index.html              # Landing page
-├── login.html              # Login page
-├── register.html           # Registration page
-├── about.html              # About page
-├── chat.html               # Main chat interface
-├── css/
-│   ├── style.css           # Global styles
-│   └── chat.css            # Chat & PDF Manager styles
-├── js/
-│   ├── main.js             # Homepage logic
-│   ├── auth.js             # Authentication logic
-│   └── chat.js             # Chat & PDF logic
-├── server.js               # Backend API
-├── users/                  # User JSON files (auto-created)
-├── uploads/                # Temp uploads (auto-created)
-├── .env                    # Environment variables
-└── package.json            # Dependencies
-```
+PDF retrieval narrows the material sent to the chat model, but generated answers can still be wrong. Check important answers against the original documents. Image-only or scanned PDFs need OCR before Cerebro can read their text.
 
----
+Account and conversation records live in `users/`; PDF search indexes live in `indexes/`. These directories are local and ignored by Git. Passwords are stored in plaintext, and the password recovery endpoint can return them. Use a unique password and do not expose Cerebro to the public internet.
 
-## 🚀 Usage Guide
+## API
 
-### 1. Create an Account
-- Go to `register.html`
-- Enter First Name, Last Name (username), Email, Password
-- Click "Create Account"
+Cerebro exposes these local endpoints:
 
-### 2. Login
-- Go to `login.html`
-- Enter Last Name (username) and Password
-- Click "Login"
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/health` | Check the Cerebro server. |
+| `GET /api/models` | Check the Ollama connection and list pulled chat models. Returns `available`, `models`, `defaultModel`, `embeddingModel`, and `embeddingAvailable`; may include `error`. |
+| `POST /api/upload` | Upload PDFs for a session and conversation. |
+| `POST /api/chat` | Ask a question. Accepts `message`, `sessionId`, `conversationId`, optional `model`, and `stream: true`. |
 
-### 3. Upload PDF
-- Click the paperclip icon 📎
-- Select "Upload PDF"
-- Choose one or more PDF files (max 10, 10MB each)
+With `stream: true`, `/api/chat` returns newline-delimited JSON. `delta` events contain a `content` fragment; a `done` event contains the completed `answer` and chat `mode`; an `error` event reports a failure. Cerebro checks each pulled model with Ollama's `/api/show` and lists only models that advertise the `completion` capability, excluding embedding-only models. Ollama's own API uses [`/api/tags`](https://docs.ollama.com/api/tags) to list models, [`/api/chat`](https://docs.ollama.com/api/chat) for chat, and [`/api/embed`](https://docs.ollama.com/api/embed) for embeddings.
 
-### 4. Ask Questions
-- Type your question in the chat input
-- Press Enter or click Send ✈️
-- AI answers based ONLY on your PDFs
+## Troubleshooting
 
-### 5. Manage PDFs
-- Click any PDF chip (green pill) OR the "Manage" button
-- Check/uncheck PDFs to focus on
-- Click "Apply Focus" - AI will only use selected PDFs
-- Click "Delete Checked" - Remove specific PDFs
+| Symptom | Check |
+| --- | --- |
+| Ollama unavailable | Start Ollama. Check `http://localhost:11434/api/tags` or the URL in `OLLAMA_BASE_URL`. If `localhost` fails but `127.0.0.1` works, set `OLLAMA_BASE_URL=http://127.0.0.1:11434`. |
+| No chat model in the picker | Run `ollama list`, pull a chat model such as `ollama pull llama3.2`, then refresh the app. |
+| PDF indexing fails | Run `ollama pull nomic-embed-text`, or pull the model named by `OLLAMA_EMBED_MODEL`. Check that Ollama is running. |
+| PDF has no readable text | Use a text-based PDF or run OCR on the scanned PDF first. |
+| The first answer is slow | Ollama may need to load the model into memory. Smaller pulled models can help on lower-memory machines. |
 
-### 6. Exit PDF Mode
-- Click the red "Exit PDF Mode" button
-- Returns to normal chat mode
+## License
 
-### 7. Manage Conversations
-- **New Chat** - Click "New Chat" button in sidebar
-- **Edit Title** - Hover conversation → Click edit icon
-- **Delete** - Hover conversation → Click delete icon
-
-### 8. Account Settings
-- **Logout** - Click "Logout" in sidebar footer
-- **Delete Account** - Click "Delete Account" (requires confirmation)
-
----
-
-## 🔧 API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/auth/register` | POST | Create new user account |
-| `/api/auth/login` | POST | Authenticate user |
-| `/api/auth/logout` | POST | End user session |
-| `/api/auth/delete-account` | POST | Permanently delete account |
-| `/api/auth/forgot-password` | POST | Retrieve password |
-| `/api/conversations/:sessionId` | GET | Get all conversations |
-| `/api/conversations/create` | POST | Create new conversation |
-| `/api/upload` | POST | Upload PDF files |
-| `/api/chat` | POST | Send message to AI |
-| `/api/conversations/:sessionId/focus-pdf` | POST | Focus on selected PDFs |
-| `/api/conversations/:sessionId/delete-pdf` | POST | Delete individual PDF |
-| `/api/conversations/:sessionId/clear-pdfs` | POST | Clear all PDFs |
-
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-- **Google Gemini AI** - For providing the powerful language model
-- **Font Awesome** - For the beautiful icons
-- **Google Fonts** - For the Inter font family
-
-# Initialize git repository
-git init
-
-# Add all files
-git add .
-
-# Commit
-git commit -m "Initial commit: Cerebro AI Study Assistant"
-
-# Add remote (replace with your repo URL)
-git remote add origin https://github.com/yourusername/cerebro.git
-
-# Push to GitHub
-git branch -M main
-git push -u origin main
-
-<div align="center">
-  
-**Made with 🧠 by Team Cerebro**
-
-</div>
+[MIT](LICENSE)

@@ -4,8 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>Cerebro | About</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -16,7 +15,7 @@
                     <i class="fas fa-brain"></i> Cerebro
                 </a>
             </div>
-            <ul class="nav-menu">
+            <ul class="nav-menu" id="navMenu">
                 <li><a href="index.html">Home</a></li>
                 <li><a href="about.html" class="active">About</a></li>
             </ul>
@@ -24,11 +23,11 @@
                 <a href="login.html" class="btn-login">Login</a>
                 <a href="register.html" class="btn-register">Register</a>
             </div>
-            <div class="hamburger">
+            <button type="button" class="hamburger" aria-label="Open menu" aria-controls="navMenu" aria-expanded="false">
                 <span></span>
                 <span></span>
                 <span></span>
-            </div>
+            </button>
         </div>
     </nav>
 
@@ -37,7 +36,7 @@
             <!-- Hero Section -->
             <div class="about-hero">
                 <h1>About Cerebro</h1>
-                <p>Your intelligent AI study assistant powered by Google Gemini</p>
+                <p>Study your PDFs with models running on your own Ollama instance.</p>
             </div>
 
             <!-- How It Works -->
@@ -58,9 +57,9 @@
                     </div>
                     <div class="step">
                         <div class="step-number">3</div>
-                        <i class="fas fa-star"></i>
+                        <i class="fas fa-comment-dots"></i>
                         <h3>Get Answers</h3>
-                        <p>Receive answers based strictly on your PDFs</p>
+                        <p>Receive answers using relevant passages from your PDFs</p>
                     </div>
                 </div>
             </div>
@@ -118,8 +117,8 @@
                         <span>JSON Storage</span>
                     </div>
                     <div class="tech-card">
-                        <i class="fas fa-robot"></i>
-                        <span>Google Gemini AI</span>
+                        <i class="fas fa-desktop"></i>
+                        <span>Ollama</span>
                     </div>
                 </div>
             </div>

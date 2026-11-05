@@ -1,6 +1,4 @@
-const API_BASE_URL = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    ? 'http://localhost:8080/api'
-    : '/api';
+const API_BASE_URL = window.location.origin + '/api';
 const sessionId = localStorage.getItem('cerebro_session');
 const userData = JSON.parse(localStorage.getItem('cerebro_user') || '{}');
 
@@ -13,6 +11,11 @@ let currentPDFCount = 0;
 let currentPDFNames = [];
 let activePDFNames = [];
 let isUploading = false;
+let selectedModel = '';
+let embeddingAvailable = false;
+let isSending = false;
+let isLoadingModels = false;
+let conversationRequestVersion = 0;
 
 
 const sidebar = document.getElementById('chatSidebar');
@@ -35,11 +38,87 @@ const exitStudyModeBtn = document.getElementById('exitStudyModeBtn');
 const userName = document.getElementById('userName');
 const logoutBtn = document.getElementById('logoutBtn');
 const deleteAccountBtn = document.getElementById('deleteAccountBtn');
+const ollamaModel = document.getElementById('ollamaModel');
+const ollamaStatus = document.getElementById('ollamaStatus');
+const ollamaStatusText = document.getElementById('ollamaStatusText');
+const retryOllamaBtn = document.getElementById('retryOllamaBtn');
 
 if (!sessionId) {
     window.location.href = 'login.html';
 }
 if (userName) userName.textContent = userData.firstName || userData.lastName;
+
+function setOllamaStatus(message, state) {
+    ollamaStatus.dataset.state = state;
+    ollamaStatusText.textContent = message;
+}
+
+function syncOllamaControls() {
+    sendBtn.disabled = !selectedModel || isSending || isUploading;
+    uploadBtn.disabled = !embeddingAvailable || isUploading || isSending;
+    retryOllamaBtn.disabled = isLoadingModels || isUploading || isSending;
+    if (uploadBtn.disabled) uploadOptions.classList.remove('show');
+}
+
+function modelIsAvailable(name, models) {
+    return models.find(model => model === name || model === `${name}:latest`);
+}
+
+async function loadOllamaModels() {
+    if (isLoadingModels || isUploading || isSending) return;
+    isLoadingModels = true;
+    setOllamaStatus('Checking Ollama...', 'loading');
+    selectedModel = '';
+    embeddingAvailable = false;
+    ollamaModel.disabled = true;
+    ollamaModel.replaceChildren(new Option('Checking Ollama...', ''));
+    syncOllamaControls();
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/models`);
+        const data = await response.json();
+        if (!response.ok || !data.available) {
+            throw new Error(data.error || 'Ollama is unavailable. Start it and check OLLAMA_BASE_URL (default http://localhost:11434).');
+        }
+
+        const allModels = (data.models || []).map(model => model.name).filter(Boolean);
+        const chatModels = allModels.filter(name => !modelIsAvailable(data.embeddingModel, [name]));
+        if (chatModels.length === 0) {
+            throw new Error('No chat model found. Run ollama pull llama3.2, then refresh models.');
+        }
+
+        ollamaModel.replaceChildren(...chatModels.map(name => new Option(name, name)));
+        const savedModel = localStorage.getItem('cerebro_ollama_model');
+        selectedModel = modelIsAvailable(savedModel, chatModels)
+            || modelIsAvailable(data.defaultModel, chatModels)
+            || chatModels[0];
+        ollamaModel.value = selectedModel;
+        ollamaModel.disabled = false;
+        embeddingAvailable = data.embeddingAvailable === true;
+        syncOllamaControls();
+
+        if (embeddingAvailable) {
+            setOllamaStatus('Ollama ready. Chat and PDF study available.', 'ready');
+        } else {
+            setOllamaStatus(`Chat ready. To upload PDFs, run ollama pull ${data.embeddingModel}, then refresh models.`, 'error');
+        }
+    } catch (error) {
+        ollamaModel.replaceChildren(new Option('No model available', ''));
+        setOllamaStatus(error.message || 'Cannot reach Cerebro. Start the server, then refresh models.', 'error');
+        syncOllamaControls();
+    } finally {
+        isLoadingModels = false;
+        syncOllamaControls();
+    }
+}
+
+ollamaModel.addEventListener('change', () => {
+    selectedModel = ollamaModel.value;
+    localStorage.setItem('cerebro_ollama_model', selectedModel);
+    syncOllamaControls();
+});
+retryOllamaBtn.addEventListener('click', loadOllamaModels);
+loadOllamaModels();
 
 async function refreshSidebarOnly() {
     try {
@@ -47,19 +126,21 @@ async function refreshSidebarOnly() {
         const data = await response.json();
         conversations = data.conversations || [];
         renderConversationList();
+        const activeConversation = conversations.find(conversation => conversation.id === currentConversationId);
+        if (activeConversation && chatTitle) chatTitle.textContent = activeConversation.title;
     } catch (err) {
         console.error('Error refreshing sidebar:', err);
     }
 }
 
 // PDF MODE FUNCTIONS
-function enablePDFMode(pdfName, pdfCount = 1, pdfNames = []) {
+function enablePDFMode(pdfName, pdfCount = 1, pdfNames = [], focusedNames = pdfNames) {
     console.log('Enabling PDF Mode');
     isPDFMode = true;
     currentPDFName = pdfName;
     currentPDFCount = pdfCount;
     currentPDFNames = pdfNames.length > 0 ? pdfNames : (pdfName ? [pdfName] : []);
-    activePDFNames = [...currentPDFNames];
+    activePDFNames = [...focusedNames];
 
     if (pdfModeBadge) pdfModeBadge.style.display = 'flex';
     if (studyModeBar) studyModeBar.style.display = 'flex';
@@ -100,10 +181,11 @@ function renderPDFChips() {
     
     if (currentPDFNames.length === 0) {
         if (currentPDFName) {
-            const chip = document.createElement('span');
+            const chip = document.createElement('button');
             chip.className = 'pdf-chip';
+            chip.type = 'button';
             chip.title = currentPDFName;
-            chip.innerHTML = `<i class="fas fa-file-pdf"></i> ${truncateName(currentPDFName, 25)}`;
+            chip.innerHTML = `<i class="fas fa-file-pdf"></i> ${escapeHtml(truncateName(currentPDFName, 25))}`;
             chip.addEventListener('click', () => openPDFManager());
             pdfFileNameSpan.appendChild(chip);
         }
@@ -113,17 +195,19 @@ function renderPDFChips() {
         const remainingActive = activePDFNames.length - visiblePDFs.length;
         
         visiblePDFs.forEach((name) => {
-            const chip = document.createElement('span');
+            const chip = document.createElement('button');
             chip.className = 'pdf-chip';
+            chip.type = 'button';
             chip.title = name;
-            chip.innerHTML = `<i class="fas fa-file-pdf"></i> ${truncateName(name, 20)}`;
+            chip.innerHTML = `<i class="fas fa-file-pdf"></i> ${escapeHtml(truncateName(name, 20))}`;
             chip.addEventListener('click', () => openPDFManager());
             pdfFileNameSpan.appendChild(chip);
         });
         
         if (remainingActive > 0) {
-            const moreChip = document.createElement('span');
+            const moreChip = document.createElement('button');
             moreChip.className = 'pdf-chip';
+            moreChip.type = 'button';
             moreChip.innerHTML = `<i class="fas fa-ellipsis-h"></i> +${remainingActive}`;
             moreChip.addEventListener('click', () => openPDFManager());
             pdfFileNameSpan.appendChild(moreChip);
@@ -131,10 +215,10 @@ function renderPDFChips() {
         
         const waitingCount = currentPDFNames.length - activePDFNames.length;
         if (waitingCount > 0) {
-            const waitingChip = document.createElement('span');
+            const waitingChip = document.createElement('button');
             waitingChip.className = 'pdf-chip';
-            waitingChip.style.opacity = '0.6';
-            waitingChip.style.borderColor = 'var(--text-muted)';
+            waitingChip.type = 'button';
+            waitingChip.classList.add('pdf-chip-waiting');
             waitingChip.title = 'PDFs in waiting list (not focused)';
             waitingChip.innerHTML = `<i class="fas fa-clock"></i> +${waitingCount} waiting`;
             waitingChip.addEventListener('click', () => openPDFManager());
@@ -142,8 +226,9 @@ function renderPDFChips() {
         }
         
         if (currentPDFNames.length > 1) {
-            const manageBtn = document.createElement('span');
+            const manageBtn = document.createElement('button');
             manageBtn.className = 'pdf-manage-btn';
+            manageBtn.type = 'button';
             manageBtn.innerHTML = `<i class="fas fa-sliders-h"></i> Manage`;
             manageBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -202,7 +287,7 @@ function openPDFManager() {
         <div class="pdf-manager-header">
             <i class="fas fa-layer-group"></i>
             <span class="pdf-manager-title">Manage PDFs (${activePDFNames.length}/${currentPDFNames.length} focused)</span>
-            <button class="pdf-manager-close" id="pdfManagerClose"><i class="fas fa-times"></i></button>
+            <button class="pdf-manager-close" id="pdfManagerClose" aria-label="Close PDF manager"><i class="fas fa-times"></i></button>
         </div>
         <p class="pdf-manager-hint">Checked = AI will focus on it | Unchecked = waiting list (kept but not used)</p>
         <div class="pdf-manager-list">
@@ -295,43 +380,39 @@ document.addEventListener('click', (e) => {
     }
 });
 
+document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (activePDFManagerPanel) closePDFManager();
+    const editModal = document.getElementById('editModal');
+    if (editModal.style.display !== 'none') document.getElementById('cancelEditBtn').click();
+});
+
 async function applyFocus(namesToFocus) {
-    closePDFManager();
-    activePDFNames = [...namesToFocus];
-    let focusedContent = '';
-    const fullContent = sessionStorage.getItem('pdfFullContent') || '';
-
-    for (const pdfName of activePDFNames) {
-        const marker = `--- ${pdfName} ---`;
-        const markerIndex = fullContent.indexOf(marker);
-        if (markerIndex !== -1) {
-            const nextMarkerIndex = fullContent.indexOf('\n\n--- ', markerIndex + marker.length);
-            const section = nextMarkerIndex !== -1
-                ? fullContent.substring(markerIndex, nextMarkerIndex)
-                : fullContent.substring(markerIndex);
-            focusedContent += (focusedContent ? '\n\n' : '') + section;
-        }
-    }
-
+    const targetConversationId = currentConversationId;
     try {
-        await fetch(`${API_BASE_URL}/conversations/${sessionId}/focus-pdf`, {
+        const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}/focus-pdf`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                conversationId: currentConversationId,
-                pdfNames: activePDFNames
+                conversationId: targetConversationId,
+                pdfNames: namesToFocus
             })
         });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.error || 'Could not update PDF focus.');
+        if (currentConversationId !== targetConversationId) return;
+        activePDFNames = data.activePdfNames;
+        currentPDFNames = data.pdfNames;
+        currentPDFName = activePDFNames[0] || '';
+        currentPDFCount = data.pdfCount;
+        closePDFManager();
+        renderPDFChips();
     } catch (error) {
-        console.error('Focus PDF error:', error);
+        if (currentConversationId !== targetConversationId) return;
+        if (activePDFManagerPanel) showPanelError(activePDFManagerPanel, error.message);
+        else addMessageToUI(`Could not update PDF focus: ${error.message}`, 'bot');
+        return;
     }
-
-    sessionStorage.setItem('pdfActiveContent', focusedContent);
-    
-    currentPDFName = activePDFNames[0] || '';
-    currentPDFCount = currentPDFNames.length;
-    
-    renderPDFChips();
 
     if (pdfCounter && currentPDFNames.length > 1) {
         pdfCounter.textContent = `${activePDFNames.length}/${currentPDFNames.length} focused`;
@@ -354,6 +435,7 @@ async function applyFocus(namesToFocus) {
 
 
 async function deleteSelectedPDFs(namesToDelete) {
+    const targetConversationId = currentConversationId;
     const remaining = currentPDFNames.filter(n => !namesToDelete.includes(n));
     const label = namesToDelete.length === 1 ? `"${namesToDelete[0]}"` : `${namesToDelete.length} PDFs`;
     const confirmMsg = remaining.length === 0
@@ -361,32 +443,41 @@ async function deleteSelectedPDFs(namesToDelete) {
         : `Delete ${label}? ${remaining.length} PDF(s) will remain.`;
 
     if (!confirm(confirmMsg)) return;
-    closePDFManager();
 
-    for (const name of namesToDelete) {
-        try {
-            await fetch(`${API_BASE_URL}/conversations/${sessionId}/delete-pdf`, {
+    let result;
+    try {
+        for (const name of namesToDelete) {
+            const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}/delete-pdf`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversationId: currentConversationId, pdfName: name })
+                body: JSON.stringify({ conversationId: targetConversationId, pdfName: name })
             });
-        } catch (e) {
-            console.error('Delete PDF error:', e);
+            result = await response.json();
+            if (!response.ok || !result.success) throw new Error(result.error || `Could not delete ${name}.`);
         }
+    } catch (error) {
+        if (currentConversationId !== targetConversationId) return;
+        await loadConversation(targetConversationId);
+        if (currentConversationId !== targetConversationId) return;
+        addMessageToUI(`PDF deletion stopped: ${error.message}`, 'bot');
+        return;
     }
 
-    currentPDFNames = remaining;
-    currentPDFCount = remaining.length;
+    if (currentConversationId !== targetConversationId) return;
+    closePDFManager();
+    currentPDFNames = result.remainingPDFs;
+    activePDFNames = result.activePdfNames;
+    currentPDFCount = result.pdfCount;
 
-    if (remaining.length === 0) {
+    if (currentPDFCount === 0) {
         disablePDFMode();
         const msg = `Removed ${label}\n\nNo PDFs remaining - switched back to normal chat mode.`;
         addMessageToUI(msg, 'bot');
         currentMessages.push({ role: 'assistant', content: msg, timestamp: new Date().toISOString() });
     } else {
-        currentPDFName = remaining[0];
-        enablePDFMode(currentPDFName, currentPDFCount, remaining);
-        const msg = `Removed ${label}\n\n${remaining.length} PDF(s) still loaded. You can upload up to ${10 - remaining.length} more.`;
+        currentPDFName = activePDFNames[0] || currentPDFNames[0];
+        enablePDFMode(currentPDFName, currentPDFCount, currentPDFNames, activePDFNames);
+        const msg = `Removed ${label}\n\n${currentPDFCount} PDF(s) still loaded. You can upload up to ${10 - currentPDFCount} more.`;
         addMessageToUI(msg, 'bot');
         currentMessages.push({ role: 'assistant', content: msg, timestamp: new Date().toISOString() });
     }
@@ -395,17 +486,22 @@ async function deleteSelectedPDFs(namesToDelete) {
 // Exit PDF Mode button
 if (exitStudyModeBtn) {
     exitStudyModeBtn.addEventListener('click', async () => {
+        const targetConversationId = currentConversationId;
         console.log('Exit PDF Mode button clicked');
         try {
-            await fetch(`${API_BASE_URL}/conversations/${sessionId}/clear-pdfs`, {
+            const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}/clear-pdfs`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversationId: currentConversationId })
+                body: JSON.stringify({ conversationId: targetConversationId })
             });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.error || 'Could not clear PDFs.');
             console.log('PDF context cleared');
         } catch (error) {
-            console.error('Error clearing PDF context:', error);
+            if (currentConversationId === targetConversationId) addMessageToUI(`Could not exit PDF mode: ${error.message}`, 'bot');
+            return;
         }
+        if (currentConversationId !== targetConversationId) return;
         disablePDFMode();
         const msg = "Exited PDF Mode\n\nSwitched back to normal chat mode. Upload a new PDF anytime!";
         addMessageToUI(msg, 'bot');
@@ -415,6 +511,14 @@ if (exitStudyModeBtn) {
 
 
 let isSidebarCollapsed = false;
+
+function syncSidebarAccessibility() {
+    const hidden = window.innerWidth <= 768
+        ? !sidebar.classList.contains('open')
+        : sidebar.classList.contains('collapsed');
+    sidebar.inert = hidden;
+    menuToggle.setAttribute('aria-expanded', String(!hidden));
+}
 
 function loadSidebarState() {
     const savedState = localStorage.getItem('cerebro_sidebar_collapsed');
@@ -428,6 +532,7 @@ function loadSidebarState() {
             document.body.classList.remove('sidebar-collapsed');
         }
     }
+    syncSidebarAccessibility();
 }
 
 function saveSidebarState() {
@@ -448,6 +553,7 @@ function toggleSidebar() {
         }
         saveSidebarState();
     }
+    syncSidebarAccessibility();
 }
 
 function closeSidebar() {
@@ -459,6 +565,7 @@ function closeSidebar() {
         document.body.classList.add('sidebar-collapsed');
         saveSidebarState();
     }
+    syncSidebarAccessibility();
 }
 
 loadSidebarState();
@@ -470,6 +577,7 @@ document.addEventListener('click', (e) => {
     if (window.innerWidth <= 768) {
         if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
             sidebar.classList.remove('open');
+            syncSidebarAccessibility();
         }
     }
 });
@@ -488,6 +596,7 @@ window.addEventListener('resize', () => {
         sidebar.classList.remove('collapsed');
         document.body.classList.remove('sidebar-collapsed');
     }
+    syncSidebarAccessibility();
 });
 
 
@@ -522,10 +631,11 @@ function renderConversationList() {
     const weekList = document.getElementById('weekList');
     const monthList = document.getElementById('monthList');
 
-    if (todayList) todayList.innerHTML = groups.today.map(conv => createConversationItem(conv)).join('');
-    if (yesterdayList) yesterdayList.innerHTML = groups.yesterday.map(conv => createConversationItem(conv)).join('');
-    if (weekList) weekList.innerHTML = groups.week.map(conv => createConversationItem(conv)).join('');
-    if (monthList) monthList.innerHTML = groups.month.map(conv => createConversationItem(conv)).join('');
+    for (const [key, list] of Object.entries({ today: todayList, yesterday: yesterdayList, week: weekList, month: monthList })) {
+        if (!list) continue;
+        list.innerHTML = groups[key].map(conv => createConversationItem(conv)).join('');
+        list.previousElementSibling.hidden = groups[key].length === 0;
+    }
 }
 
 function createConversationItem(conv) {
@@ -533,22 +643,32 @@ function createConversationItem(conv) {
     const title = conv.title || 'New Conversation';
     const date = new Date(conv.updatedAt).toLocaleDateString();
     return `
-        <div class="conversation-item ${isActive ? 'active' : ''}" data-id="${conv.id}">
-            <div class="conversation-info" onclick="window.loadConversation('${conv.id}')">
-                <div class="conversation-title">${escapeHtml(title)}</div>
-                <div class="conversation-date">${date}</div>
-            </div>
+        <div class="conversation-item ${isActive ? 'active' : ''}" data-id="${escapeHtml(conv.id)}">
+            <button type="button" class="conversation-info" data-action="load" data-id="${escapeHtml(conv.id)}">
+                <span class="conversation-title">${escapeHtml(title)}</span>
+                <span class="conversation-date">${date}</span>
+            </button>
             <div class="conversation-actions">
-                <button class="conv-edit" onclick="window.editConversation('${conv.id}', '${escapeHtml(title)}')">
+                <button type="button" class="conv-edit" data-action="edit" data-id="${escapeHtml(conv.id)}" aria-label="Edit ${escapeHtml(title)}">
                     <i class="fas fa-pen"></i>
                 </button>
-                <button class="conv-delete" onclick="window.deleteConversation('${conv.id}')">
+                <button type="button" class="conv-delete" data-action="delete" data-id="${escapeHtml(conv.id)}" aria-label="Delete ${escapeHtml(title)}">
                     <i class="fas fa-trash"></i>
                 </button>
             </div>
         </div>
     `;
 }
+
+document.querySelector('.conversations-section').addEventListener('click', (event) => {
+    const control = event.target.closest('button[data-action]');
+    if (!control) return;
+    const conversation = conversations.find(item => item.id === control.dataset.id);
+    if (!conversation) return;
+    if (control.dataset.action === 'load') loadConversation(conversation.id);
+    if (control.dataset.action === 'edit') editConversation(conversation.id, conversation.title || 'New Conversation');
+    if (control.dataset.action === 'delete') deleteConversation(conversation.id);
+});
 
 async function loadConversations() {
     try {
@@ -568,6 +688,7 @@ async function loadConversations() {
 }
 
 async function createNewConversation() {
+    const requestVersion = ++conversationRequestVersion;
     try {
         const response = await fetch(`${API_BASE_URL}/conversations/create`, {
             method: 'POST',
@@ -575,38 +696,45 @@ async function createNewConversation() {
             body: JSON.stringify({ sessionId })
         });
         const data = await response.json();
+        if (requestVersion !== conversationRequestVersion) return;
         currentConversationId = data.conversationId;
         currentMessages = [];
         await loadConversations();
+        if (requestVersion !== conversationRequestVersion || currentConversationId !== data.conversationId) return;
         renderCurrentConversation();
         if (chatTitle) chatTitle.textContent = 'New Conversation';
         disablePDFMode();
-        closeSidebar();
+        if (window.innerWidth <= 768) closeSidebar();
     } catch (error) {
+        if (requestVersion !== conversationRequestVersion) return;
         console.error('Error creating conversation:', error);
         renderCurrentConversation();
     }
 }
 
 async function loadConversation(conversationId) {
+    const requestVersion = ++conversationRequestVersion;
     currentConversationId = conversationId;
+    closePDFManager();
     try {
         const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}/${conversationId}`);
         const data = await response.json();
+        if (requestVersion !== conversationRequestVersion || currentConversationId !== conversationId) return;
         currentMessages = data.messages || [];
         renderCurrentConversation();
         const conv = conversations.find(c => c.id === conversationId);
         if (chatTitle) chatTitle.textContent = conv?.title || 'Conversation';
 
         if (data.pdfNames && data.pdfNames.length > 0) {
-            enablePDFMode(data.pdfNames[0], data.pdfCount || data.pdfNames.length, data.pdfNames);
+            enablePDFMode(data.activePdfNames?.[0] || data.pdfNames[0], data.pdfCount || data.pdfNames.length, data.pdfNames, data.activePdfNames || data.pdfNames);
         } else {
             disablePDFMode();
         }
 
         renderConversationList();
-        closeSidebar();
+        if (window.innerWidth <= 768) closeSidebar();
     } catch (error) {
+        if (requestVersion !== conversationRequestVersion || currentConversationId !== conversationId) return;
         console.error('Error loading conversation:', error);
         disablePDFMode();
     }
@@ -618,6 +746,7 @@ async function editConversation(conversationId, currentTitle) {
     if (!modal || !input) return;
     input.value = currentTitle;
     modal.style.display = 'flex';
+    input.focus();
 
     const saveBtn = document.getElementById('saveEditBtn');
     const cancelBtn = document.getElementById('cancelEditBtn');
@@ -676,14 +805,12 @@ async function deleteConversation(conversationId) {
 function renderCurrentConversation() {
     if (!chatMessages) return;
 
-    if (isUploading) return;
-
     if (currentMessages.length === 0) {
         chatMessages.innerHTML = `
             <div class="welcome-message">
                 <i class="fas fa-brain"></i>
                 <h2>Welcome to Cerebro</h2>
-                <p>I'm your AI study assistant. Upload a PDF to get started!</p>
+                <p>Choose a local model, then ask a question or upload a PDF.</p>
             </div>
         `;
         return;
@@ -701,7 +828,7 @@ function addMessageToUI(text, role, attachments = null, isProcessing = false) {
     messageDiv.className = `message ${role === 'user' ? 'user' : 'bot'}`;
     let content;
     if (isProcessing) {
-        content = `<div class="message-content status-content"><i class="fas fa-circle-notch fa-spin"></i> ${formatMessage(text)}</div>`;
+        content = `<div class="message-content status-content">${formatMessage(text)}</div>`;
     } else {
         content = `<div class="message-content">${formatMessage(text)}`;
         if (attachments && attachments.length > 0) {
@@ -714,14 +841,20 @@ function addMessageToUI(text, role, attachments = null, isProcessing = false) {
     messageDiv.innerHTML = content;
     chatMessages.appendChild(messageDiv);
     scrollToBottom();
+    return messageDiv;
 }
 
 
 // SEND MESSAGE
 async function sendMessage() {
     const message = chatInput.value.trim();
-    if (!message) return;
+    if (!message || !selectedModel || isSending || isUploading) return;
 
+    isSending = true;
+    syncOllamaControls();
+    const targetConversationId = currentConversationId;
+
+    if (currentMessages.length === 0) chatMessages.replaceChildren();
     addMessageToUI(message, 'user');
     currentMessages.push({ role: 'user', content: message, timestamp: new Date().toISOString() });
     chatInput.value = '';
@@ -735,25 +868,80 @@ async function sendMessage() {
             body: JSON.stringify({
                 message,
                 sessionId,
-                conversationId: currentConversationId,
-                history: currentMessages.slice(-10)
+                conversationId: targetConversationId,
+                model: selectedModel,
+                stream: true
             })
         });
 
-        const data = await response.json();
-        removeTypingIndicator();
-
-        if (data.answer) {
-            addMessageToUI(data.answer, 'bot');
-            currentMessages.push({ role: 'assistant', content: data.answer, timestamp: new Date().toISOString() });
-            await refreshSidebarOnly();
-        } else {
-            addMessageToUI('Sorry, I received an unexpected response. Please try again.', 'bot');
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || `Chat request failed (${response.status}).`);
         }
+
+        if (!response.body) throw new Error('This browser cannot receive streamed responses.');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let pending = '';
+        let answer = '';
+        let finished = false;
+        let answerElement = null;
+
+        function updateAnswer() {
+            if (currentConversationId !== targetConversationId) return;
+            removeTypingIndicator();
+            if (!answerElement) answerElement = addMessageToUI('', 'bot').querySelector('.message-content');
+            answerElement.innerHTML = formatMessage(answer);
+            scrollToBottom();
+        }
+
+        function handleEvent(line) {
+            if (!line.trim()) return;
+            const event = JSON.parse(line);
+            if (event.type === 'delta') {
+                answer += event.content || '';
+                updateAnswer();
+            } else if (event.type === 'done') {
+                answer = event.answer || answer;
+                finished = true;
+                updateAnswer();
+            } else if (event.type === 'error') {
+                throw new Error(event.error || 'Ollama stopped generating.');
+            }
+        }
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            pending += decoder.decode(value, { stream: true });
+            const lines = pending.split('\n');
+            pending = lines.pop();
+            for (const line of lines) handleEvent(line);
+        }
+        pending += decoder.decode();
+        if (pending.trim()) handleEvent(pending);
+        if (!finished) throw new Error('Ollama closed the response before finishing.');
+
+        removeTypingIndicator();
+        if (currentConversationId === targetConversationId) {
+            currentMessages.push({ role: 'assistant', content: answer, timestamp: new Date().toISOString() });
+        }
+        await refreshSidebarOnly();
     } catch (error) {
         console.error('Send message error:', error);
         removeTypingIndicator();
-        addMessageToUI('Sorry, I encountered an error. Please make sure the backend is running.', 'bot');
+        if (currentConversationId === targetConversationId) {
+            addMessageToUI(`Response stopped: ${error.message}`, 'bot');
+        }
+        if (/ollama|model|connect|fetch/i.test(error.message)) {
+            setOllamaStatus(`${error.message} Check Ollama, then refresh models.`, 'error');
+            selectedModel = '';
+            embeddingAvailable = false;
+            ollamaModel.disabled = true;
+        }
+    } finally {
+        isSending = false;
+        syncOllamaControls();
     }
 }
 
@@ -783,11 +971,14 @@ if (fileInput) {
     fileInput.addEventListener('change', async (e) => {
         const files = e.target.files;
         if (files.length === 0) return;
+        const targetConversationId = currentConversationId;
 
         isUploading = true;
+        syncOllamaControls();
         const fileNames = Array.from(files).map(f => f.name);
 
         const uploadMsg = `Uploading ${fileNames.length} file(s)...\n\n${fileNames.map(f => `- ${f}`).join('\n')}`;
+        if (currentMessages.length === 0) chatMessages.replaceChildren();
         addMessageToUI(uploadMsg, 'user');
         currentMessages.push({ role: 'user', content: uploadMsg, timestamp: new Date().toISOString() });
         for (const file of files) {
@@ -797,6 +988,7 @@ if (fileInput) {
                 currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
                 fileInput.value = '';
                 isUploading = false;
+                syncOllamaControls();
                 return;
             }
         }
@@ -808,7 +1000,7 @@ if (fileInput) {
         const formData = new FormData();
         for (let file of files) formData.append('files', file);
         formData.append('sessionId', sessionId);
-        formData.append('conversationId', currentConversationId);
+        formData.append('conversationId', targetConversationId);
 
         try {
             const response = await fetch(`${API_BASE_URL}/upload`, {
@@ -819,33 +1011,33 @@ if (fileInput) {
 
             if (spinnerEl && spinnerEl.parentNode) spinnerEl.remove();
 
-            if (result.success) {
+            if (currentConversationId === targetConversationId && result.success) {
                 const allPDFNames = result.pdfNames || fileNames;
-                sessionStorage.setItem('pdfFullContent', result.fullContent || '');
                 let successMessage = `PDF Upload Complete!\n\n`;
                 successMessage += `Files uploaded:\n${fileNames.map(f => `- ${f}`).join('\n')}\n\n`;
-                successMessage += `Stats: ${result.pdfCount}/${result.maxPDFs} PDFs | ${Math.round(result.charCount / 1000)}K characters\n\n`;
+                successMessage += `Stats: ${result.pdfCount}/${result.maxPDFs} PDFs | ${result.charCount.toLocaleString()} characters\n\n`;
                 successMessage += `PDF Mode active. Click the PDF chips above to manage which documents to focus on!`;
                 if (result.truncated) successMessage += `\n\nNote: Some content was truncated due to length limits.`;
 
                 addMessageToUI(successMessage, 'bot');
                 currentMessages.push({ role: 'assistant', content: successMessage, timestamp: new Date().toISOString() });
-                sessionStorage.setItem('pdfFullContent', result.fullContent || '');
-                sessionStorage.setItem('pdfActiveContent', result.fullContent || '');
-                enablePDFMode(fileNames[0], result.pdfCount || 1, allPDFNames);
-            } else {
+                enablePDFMode(result.activePdfNames?.[0] || fileNames[0], result.pdfCount || 1, allPDFNames, result.activePdfNames || allPDFNames);
+            } else if (currentConversationId === targetConversationId) {
                 const errMsg = `Upload failed\n\n${result.error || 'Please try again.'}`;
                 addMessageToUI(errMsg, 'bot');
                 currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
             }
         } catch (error) {
             if (spinnerEl && spinnerEl.parentNode) spinnerEl.remove();
-            const errMsg = 'Failed to upload PDFs\n\nPlease check your connection and make sure the server is running.';
-            addMessageToUI(errMsg, 'bot');
-            currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
+            if (currentConversationId === targetConversationId) {
+                const errMsg = 'Failed to upload PDFs\n\nPlease check your connection and make sure the server is running.';
+                addMessageToUI(errMsg, 'bot');
+                currentMessages.push({ role: 'assistant', content: errMsg, timestamp: new Date().toISOString() });
+            }
         }
 
         isUploading = false;
+        syncOllamaControls();
         fileInput.value = '';
 
         await refreshSidebarOnly();
@@ -857,14 +1049,14 @@ if (fileInput) {
 
 function formatMessage(text) {
     if (!text) return '';
-    return text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+    return escapeHtml(text).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
 }
 
 function showTypingIndicator() {
     const typingDiv = document.createElement('div');
     typingDiv.className = 'message bot typing';
     typingDiv.id = 'typingIndicator';
-    typingDiv.innerHTML = '<div class="message-content"><i class="fas fa-circle-notch fa-spin"></i> Thinking...</div>';
+    typingDiv.innerHTML = '<div class="message-content">Thinking...</div>';
     chatMessages.appendChild(typingDiv);
     scrollToBottom();
 }
