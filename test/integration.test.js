@@ -129,11 +129,13 @@ test('local model discovery, streamed chat, PDF focus, and persisted index', asy
         assert.deepEqual(focus.body.activePdfNames, ['beta.pdf']);
         const study = await streamChat(base, { message: 'What does beta explain?', sessionId, conversationId, model: 'llama3.2' });
         assert.equal(study.at(-1).mode, 'study');
-        const studyPrompt = requests.at(-1).messages.at(-1).content;
-        assert.match(studyPrompt, /beta\.pdf/);
-        assert.doesNotMatch(studyPrompt, /alpha\.pdf/);
-        assert.match(studyPrompt, /Beta document explains plants/);
-        assert.doesNotMatch(studyPrompt, /Alpha document explains cells/);
+        const studyAnswer = study.at(-1).answer;
+        assert.match(studyAnswer, /beta\.pdf/);
+        assert.doesNotMatch(studyAnswer, /alpha\.pdf/);
+        assert.match(studyAnswer, /Beta document explains plants/);
+        assert.doesNotMatch(studyAnswer, /Alpha document explains cells/);
+        const unrelated = await streamChat(base, { message: 'What is science?', sessionId, conversationId, model: 'llama3.2' });
+        assert.match(unrelated.at(-1).answer, /cannot answer/i);
 
         await stopCerebro(app);
         app = await startCerebro(port, ollamaPort);

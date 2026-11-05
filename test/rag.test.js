@@ -1,6 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { chunkText, cosineSimilarity, retrieveChunks } = require('../rag');
+const { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence } = require('../rag');
+
+test('unrelated question is rejected while document summary and matching question are allowed', () => {
+    const chunks = [{ text: 'James is a software developer with experience building websites.' }];
+    assert.equal(questionHasEvidence('can you tell me what is science?', chunks), false);
+    assert.equal(questionHasEvidence('what is this PDF about?', chunks), true);
+    assert.equal(questionHasEvidence('what experience does James have?', chunks), true);
+});
 
 test('long documents are chunked without losing their ends', () => {
     const content = `${'A '.repeat(1000)}final sentence`;

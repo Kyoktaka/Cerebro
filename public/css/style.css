@@ -23,16 +23,16 @@
 
 html[data-theme="dark"] {
     color-scheme: dark;
-    --page: #11242a;
-    --surface: #1a3036;
-    --surface-2: #263d43;
-    --sidebar: #162b31;
+    --page: #000000;
+    --surface: #0a0a0a;
+    --surface-2: #191919;
+    --sidebar: #050505;
     --ink: #f0f2ed;
     --muted: #bdcbca;
-    --line: #486168;
-    --control-line: #829d9f;
+    --line: #383838;
+    --control-line: #858585;
     --accent: #f0c784;
-    --accent-soft: #463d30;
+    --accent-soft: #211b12;
     --action: #e9bd76;
     --action-hover: #f3cf90;
     --action-ink: #172b30;

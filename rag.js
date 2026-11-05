@@ -52,4 +52,13 @@ function retrieveChunks(index, activeNames, queryVector) {
     return selected;
 }
 
-module.exports = { chunkText, cosineSimilarity, retrieveChunks };
+function questionHasEvidence(question, chunks) {
+    const words = question.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+    const stop = new Set(['what', 'whats', 'that', 'this', 'about', 'tell', 'please', 'could', 'would', 'should', 'does', 'have', 'from', 'with', 'your', 'their', 'which', 'where', 'when', 'into', 'explain', 'describe', 'summarize', 'summary', 'document', 'documents', 'pdf', 'file', 'files', 'content', 'uploaded', 'question', 'based', 'according', 'can', 'you', 'the', 'and', 'for', 'are', 'all', 'how', 'who', 'why', 'was', 'again']);
+    const terms = words.filter(word => word.length > 2 && !stop.has(word));
+    if (!terms.length) return /\b(summar(?:y|ize|ise)|about|overview)\b/i.test(question);
+    const tokens = new Set(chunks.flatMap(chunk => chunk.text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []));
+    return terms.every(term => tokens.has(term));
+}
+
+module.exports = { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence };
