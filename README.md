@@ -8,7 +8,7 @@ Cerebro is a local PDF study app. It extracts text from your PDFs, uses local Ol
 2. Pull a chat model and an embedding model:
 
    ```sh
-   ollama pull llama3.2
+   ollama pull llama3.2 or higher model if you have high end pc/devices
    ollama pull nomic-embed-text
    ```
 
