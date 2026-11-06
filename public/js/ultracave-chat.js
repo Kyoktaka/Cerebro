@@ -38,6 +38,7 @@
 
     document.getElementById('sidebarChatsBtn')?.addEventListener('click', () => historySearch.focus());
     document.getElementById('sidebarDocumentsBtn')?.addEventListener('click', () => {
+        if (window.innerWidth <= 760) closeSidebar();
         if (currentPDFNames.length > 0) {
             openPDFManager();
         } else if (!upload.disabled) {
@@ -48,6 +49,7 @@
         }
     });
     document.getElementById('sidebarStudyBtn')?.addEventListener('click', () => {
+        if (window.innerWidth <= 760) closeSidebar();
         document.getElementById('studyActions')?.scrollIntoView({block: 'nearest', behavior: 'smooth'});
         document.querySelector('#studyActions button')?.focus();
     });
@@ -68,9 +70,9 @@
         input.dispatchEvent(new Event('input', {bubbles: true}));
         input.focus();
         if (!selectedModel || isSending || isUploading) return;
-        if ((/focused PDF|focused documents/i.test(prompt)) && currentPDFNames.length === 0) {
+        if (currentPDFNames.length === 0) {
             if (!upload.disabled) upload.click();
-            else setOllamaStatus('Add a PDF to summarize or explain your documents.', 'error');
+            else setOllamaStatus('Add a PDF before starting a study session.', 'error');
             return;
         }
         sendMessage();
