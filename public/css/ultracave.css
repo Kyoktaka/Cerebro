@@ -334,3 +334,15 @@ html[data-theme="dark"] .response-actions button:hover { color: #f0f0f0; }
 @media (max-width: 760px) {
     .chat-tools .theme-icon-btn { width: 38px; min-width: 38px; height: 38px; min-height: 38px; }
 }
+
+
+/* Response utilities stay out of the reading flow until needed. */
+@media (hover: hover) {
+    .message.bot .response-actions { opacity: 0; }
+    .message.bot:hover .response-actions,
+    .message.bot:focus-within .response-actions { opacity: 1; }
+}
+html[data-theme="dark"] .pdf-chip,
+html[data-theme="dark"] .pdf-manage-btn { background: #151515; border-color: #292929; }
+html[data-theme="dark"] .pdf-chip:hover,
+html[data-theme="dark"] .pdf-manage-btn:hover { background: #202020; }
