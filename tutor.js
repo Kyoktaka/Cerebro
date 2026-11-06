@@ -1,4 +1,5 @@
 const { openChat, OllamaError } = require('./local-ai');
+const { isDocumentOverview } = require('./overview');
 
 const str = { type: 'string' };
 const obj = properties => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false });
@@ -72,7 +73,11 @@ async function tutorAnswer(call, request, chunks, history, requiredSources = [])
             'For summaries organize main concepts, definitions, processes and takeaways present in the sampled passages. Do not claim full coverage. For a comparison cite every requested document. If any requested fact is missing return unsupported. ' +
             'Provide a concise explanation, plus exact supporting quotations identified by passage id.',
         { request, history, sources, feedback }, answerSchema);
-        if (draft?.support === 'ambiguous') return { text: 'Which term or passage would you like me to explain?' };
+        if (draft?.support === 'ambiguous') {
+            if (!isDocumentOverview(request)) return { text: 'Which term or passage would you like me to explain?' };
+            feedback = 'The user asked for a broad overview of selected documents. Summarize supported ideas from the supplied passages without asking them to specify a topic.';
+            continue;
+        }
         if (!['direct', 'deduced'].includes(draft?.support) || typeof draft.answer !== 'string' || !draft.answer.trim()) {
             feedback = 'Provide a supported answer grounded in the supplied passages, with exact quoted evidence. If there is no relevant evidence, report unsupported.';
             continue;
