@@ -1001,7 +1001,9 @@ if (fileInput) {
                 const allPDFNames = result.pdfNames || fileNames;
                 const fileLabel = fileNames.length === 1 ? fileNames[0] : `${fileNames.length} PDFs`;
                 const truncated = result.truncated ? ' Some text was trimmed to fit the size limit.' : '';
-                addMessageToUI(`Added ${fileLabel}. ${result.pdfCount} of ${result.maxPDFs} PDFs in this conversation.${truncated}`, 'notice');
+                const extraction = (result.extractedPages || []).map(file =>
+                    `${file.name}: ${file.readablePages}/${file.pages} pages read`).join(' · ');
+                addMessageToUI(`Added ${fileLabel}. ${result.pdfCount} of ${result.maxPDFs} PDFs in this conversation.${extraction ? ' ' + extraction + '.' : ''}${truncated}`, 'notice');
                 enablePDFMode(result.activePdfNames?.[0] || fileNames[0], result.pdfCount || 1, allPDFNames, result.activePdfNames || allPDFNames);
             } else if (currentConversationId === targetConversationId) {
                 addMessageToUI(`Upload failed: ${result.error || 'Please try again.'}`, 'error');
