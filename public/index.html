@@ -4,79 +4,38 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    <title>Cerebro | Study PDFs with local models</title>
+    <title>Cerebro | Your AI study companion</title>
     <script src="js/theme.js"></script>
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/ultracave.css">
 </head>
-<body class="site-page">
-    <a class="skip-link" href="#main">Skip to content</a>
-    <nav class="navbar" aria-label="Main navigation">
-        <div class="container">
-            <div class="logo"><a href="index.html"><span class="logo-mark"><i class="fas fa-brain" aria-hidden="true"></i></span><span>Cerebro</span></a></div>
-            <ul class="nav-menu" id="navMenu">
-                <li><a href="index.html" class="active" aria-current="page">Home</a></li>
-                <li><a href="about.html">About</a></li>
-            </ul>
-            <div class="nav-actions">
-                <button class="theme-toggle" type="button" data-theme-toggle><i class="fas fa-moon" aria-hidden="true"></i><span data-theme-label>Dark mode</span></button>
-                <div class="auth-buttons" id="authButtons">
-                    <a href="login.html" class="btn-login">Sign in</a>
-                    <a href="register.html" class="btn-register">Create account</a>
-                </div>
-            </div>
-            <button type="button" class="hamburger" id="hamburger" aria-label="Open menu" aria-controls="navMenu" aria-expanded="false"><i class="fas fa-bars" aria-hidden="true"></i><span>Menu</span></button>
+<body class="studio-home">
+    <a class="skip-link" href="#main">Skip to study prompt</a>
+    <header class="studio-header">
+        <a href="index.html" class="studio-brand"><span class="logo-mark"><i class="fas fa-brain" aria-hidden="true"></i></span> Cerebro</a>
+        <nav class="studio-nav" aria-label="Main navigation">
+            <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle theme"><i class="fas fa-moon" aria-hidden="true"></i><span data-theme-label>Dark mode</span></button>
+            <a href="chat.html">Workspace</a>
+            <div id="authButtons" class="auth-buttons"><a href="login.html" class="studio-signin">Sign in</a></div>
+        </nav>
+    </header>
+    <main class="studio-main" id="main">
+        <p class="studio-eyebrow">Your AI study companion</p>
+        <h1>What would you like to study?</h1>
+        <form class="studio-composer" id="homePromptForm">
+            <label for="homePrompt" class="chat-message-label">Ask a question</label>
+            <textarea id="homePrompt" name="prompt" rows="3" placeholder="Ask anything about your documents..." required></textarea>
+            <div class="studio-composer-actions"><span>Ask, learn, review.</span><button type="submit" class="studio-submit" aria-label="Continue to chat"><i class="fas fa-arrow-up" aria-hidden="true"></i></button></div>
+        </form>
+        <div class="studio-shortcuts" aria-label="Start studying">
+            <button type="button" data-home-action="upload"><i class="fas fa-paperclip" aria-hidden="true"></i> Upload PDF</button>
+            <button type="button" data-home-action="Create a multiple-choice quiz with four options per question."><i class="fas fa-list-check" aria-hidden="true"></i> Create quiz</button>
+            <button type="button" data-home-action="Generate flashcards with clear front and back sides."><i class="far fa-rectangle-list" aria-hidden="true"></i> Flashcards</button>
+            <button type="button" data-home-action="Summarize the focused PDF documents."><i class="far fa-file-lines" aria-hidden="true"></i> Summarize</button>
         </div>
-    </nav>
-
-    <main id="main">
-        <section class="hero">
-            <div class="container hero-grid">
-                <div class="hero-content">
-                    <p class="kicker">A local study space</p>
-                    <h1>Make sense of your PDFs.</h1>
-                    <p class="subtitle">Read with the model you choose.</p>
-                    <p class="description">Cerebro finds relevant passages in your documents and lets a model running through Ollama help you work through them.</p>
-                    <div class="hero-buttons" id="heroButtons">
-                        <a href="register.html" class="btn btn-primary">Create an account</a>
-                        <a href="about.html" class="btn btn-secondary">How it works</a>
-                    </div>
-                    <p class="hero-note">Your conversations and PDF index stay on this computer.</p>
-                </div>
-                <aside class="setup-note" aria-label="Example local setup">
-                    <p class="setup-kicker">Set up your desk</p>
-                    <h2>Bring your own models.</h2>
-                    <p>Pull a chat model in Ollama. Add an embedding model when you want to study PDFs.</p>
-                    <div class="setup-line"><span>Chat</span><code>ollama pull qwen2.5-coder:3b</code></div>
-                    <div class="setup-line"><span>PDF search</span><code>ollama pull nomic-embed-text</code></div>
-                    <p class="setup-footnote">These are examples. Cerebro lists every locally pulled chat-capable model.</p>
-                </aside>
-            </div>
-        </section>
-
-        <section class="features" aria-labelledby="featuresTitle">
-            <div class="container">
-                <div class="section-heading">
-                    <p class="kicker">One reading space</p>
-                    <h2 id="featuresTitle">Stay close to the source.</h2>
-                </div>
-                <div class="features-grid">
-                    <article class="feature-card">
-                        <span class="feature-number">01</span>
-                        <h3>Ask from your documents</h3>
-                        <p>Upload text-based PDFs and focus the search on the files you need for the question in front of you.</p>
-                    </article>
-                    <article class="feature-card">
-                        <span class="feature-number">02</span>
-                        <h3>Keep your model choice</h3>
-                        <p>Switch between locally installed chat models in the workspace. No cloud API key is required.</p>
-                    </article>
-                </div>
-            </div>
-        </section>
+        <p class="studio-caption">Cerebro runs through your local Ollama models. <a href="about.html">How it works</a></p>
     </main>
-
-    <footer class="footer"><div class="container"><span>Cerebro</span><span>Made for reading, locally.</span></div></footer>
     <script src="js/main.js"></script>
 </body>
 </html>
