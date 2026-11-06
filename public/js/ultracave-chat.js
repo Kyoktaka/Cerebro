@@ -82,6 +82,10 @@
     function addResponseActions() {
         messages.querySelectorAll('.message.bot:not(.typing)').forEach(message => {
             if (message.querySelector('.response-actions')) return;
+            const content = message.querySelector('.message-content')?.textContent?.trim() || '';
+            // Do not decorate system prompts or unsupported-answer messages
+            // with irrelevant copy/retry controls.
+            if (!content || /^(?:Upload a PDF to|I cannot answer that question|I couldn't reliably retrieve|No readable passages|Select a PDF in Sources|I could not find suitable passages)/i.test(content)) return;
             const actions = document.createElement('div');
             actions.className = 'response-actions';
             actions.innerHTML = '<button type="button" data-response-copy title="Copy response"><i class="far fa-copy" aria-hidden="true"></i> Copy</button><button type="button" data-response-retry title="Ask again"><i class="fas fa-rotate-right" aria-hidden="true"></i> Ask again</button>';
