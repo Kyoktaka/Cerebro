@@ -243,3 +243,20 @@ body.pdf-viewer-open .pdf-viewer { display: flex; }
 @media (prefers-reduced-motion: reduce) {
     *,*::before,*::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+
+/* Refinements after integration with the existing chat rendering. */
+.message.bot { flex-direction: column; }
+.studio-composer .chat-message-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+.studio-nav .auth-buttons { display: flex; align-items: center; gap: 8px; }
+.studio-nav .auth-buttons .btn-login, .studio-nav .auth-buttons .btn-register,
+.studio-nav .auth-buttons .auth-logout { min-height: 40px; padding: 8px 11px; }
+.studio-nav .auth-buttons .btn-register { border-radius: 9px; }
+.studio-nav .auth-user { font-size: .78rem; }
+.chat-page .message.bot .message-content { overflow-wrap: anywhere; }
+.chat-page .message.bot .message-content pre { white-space: pre; }
+@media (max-width: 540px) {
+  .studio-nav .auth-user { display: none; }
+  .studio-nav .theme-toggle { min-width: 36px; }
+  .studio-nav .auth-buttons .btn-register { display: none; }
+}
