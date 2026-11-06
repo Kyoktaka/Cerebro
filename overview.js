@@ -9,6 +9,17 @@ function isDocumentOverview(request) {
     // targeted retrieval request, even when it starts with "summarize".
     if (/\b(?:page\s+\d+|chapter\s+\d+|section\s+\d+)\b/i.test(query)) return false;
     if (/^\s*(?:summari[sz]e|explain|give (?:me )?an? overview of)\s+(?:how|why|what|when|where)\b/i.test(query)) return false;
+    const summaryStart = query.match(/^(?:please\s+)?summari[sz]e\s+(.+)$/i);
+    if (summaryStart) {
+        const genericWords = new Set(['the', 'this', 'these', 'my', 'our', 'all', 'uploaded',
+            'focused', 'selected', 'pdf', 'pdfs', 'file', 'files', 'document', 'documents',
+            'content', 'contents', 'material', 'materials', 'in', 'simple', 'language',
+            'briefly', 'please', 'for', 'me', 'from', 'main', 'key', 'concepts', 'ideas',
+            'topics', 'points', 'and', 'their', 'information']);
+        const specific = (summaryStart[1].match(/[a-z0-9]+/g) || [])
+            .filter(word => !genericWords.has(word));
+        if (specific.length) return false;
+    }
     return true;
 }
 
