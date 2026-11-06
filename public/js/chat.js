@@ -814,7 +814,7 @@ function renderCurrentConversation() {
                 <p>Ask a question, or add a PDF to study from your sources.</p>
                 <div class="welcome-actions">
                     <button type="button" data-welcome-upload><i class="fas fa-paperclip" aria-hidden="true"></i> Upload PDF</button>
-                    <button type="button" data-study-prompt="Create a multiple-choice quiz with four options per question.">Create quiz</button>
+                    <button type="button" data-study-prompt="Quiz me interactively on the focused PDFs, one multiple-choice question at a time, with four options.">Create quiz</button>
                     <button type="button" data-study-prompt="Generate flashcards with clear front and back sides.">Flashcards</button>
                     <button type="button" data-study-prompt="Summarize the focused PDF documents.">Summarize</button>
                 </div>
