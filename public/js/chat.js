@@ -416,7 +416,7 @@ async function applyFocus(namesToFocus) {
     if (pdfCounter && currentPDFNames.length > 1) {
         pdfCounter.textContent = `${activePDFNames.length}/${currentPDFNames.length} focused`;
     }
-    addMessageToUI(`Using ${activePDFNames.length} of ${currentPDFNames.length} PDFs for study.`, 'notice');
+    addMessageToUI(`Focused PDFs: ${activePDFNames.join(', ')} (${activePDFNames.length}/${currentPDFNames.length} selected).`, 'notice');
 }
 
 
