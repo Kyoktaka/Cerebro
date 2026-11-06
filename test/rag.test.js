@@ -2,6 +2,24 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence, resolveDocumentScope, quizRequest, makeSourceQuiz } = require('../rag');
 
+test('conversational study requests and resume fields remain source bounded', () => {
+    const chunks = [{ pdfName: 'resume.pdf', text: 'Technical skills: React, Node.js, PostgreSQL\nDeploy applications using Vercel, Netlify, and Hostinger.' }];
+    assert.equal(questionHasEvidence('whats that all about, give me summary', chunks), true);
+    assert.equal(questionHasEvidence("what's his stacks?", chunks), true);
+    assert.equal(questionHasEvidence("what's his stacks?", [{ text: 'Plants grow in sunlight.' }]), false);
+    assert.equal(questionHasEvidence('give me summary about quantum physics', chunks), false);
+    assert.equal(quizRequest('what about identification').kind, 'short-answer');
+    assert.equal(quizRequest('what about identification').topic, '');
+    assert.equal(quizRequest('generate me a multiple choices').kind, 'multiple-choice');
+    assert.equal(quizRequest('generate me a multiple choices').topic, '');
+    const cards = makeSourceQuiz(chunks, 10, 'short-answer');
+    assert.ok(cards.some(card => card.answer === 'React, Node.js, PostgreSQL'));
+    const choices = makeSourceQuiz(chunks, 10, 'multiple-choice');
+    assert.equal(choices.length, 1);
+    assert.equal(choices[0].choices.length, 3);
+    assert.ok(choices[0].choices.every(choice => choices[0].evidence.includes(choice)));
+});
+
 test('quiz uses exact source sentences and identifies requested topics', () => {
     const chunks = [{ pdfName: 'resume.pdf', text: 'James is a software developer building websites.\nHe creates database systems for clients.' }];
     assert.equal(quizRequest('create me a quiz').topic, '');

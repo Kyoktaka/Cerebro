@@ -59,6 +59,13 @@ function normalizeTerm(word) {
 }
 
 function questionHasEvidence(question, chunks) {
+    question = question.replace(/\b(?:give|provide|write)\s+(?:me\s+)?(?:a\s+)?/gi, '').replace(/\b(?:his|her|their)\b/gi, '');
+    if (/\bstacks?\b/i.test(question)) {
+        question = question.replace(/\b(?:tech(?:nology)?\s+)?stacks?\b/gi, '');
+        chunks = chunks.filter(chunk => /\b(?:technologies|technical skills|frameworks|programming|stack|backend|frontend)\b/i.test(chunk.text));
+        if (!chunks.length) return false;
+        if (!question.replace(/\b(?:what|whats|s|is|are)\b|[^\w]/gi, '').trim()) return true;
+    }
     if (/^\s*who\s+is\s+(?:he|she|the person)\s*[?.!]*\s*$/i.test(question)) return true;
     const equation = question.match(/\b\d+(?:\.\d+)?\s*[+\-*/^=−]\s*\d+(?:\.\d+)?\b/u);
     const compact = value => value.replace(/\s+/g, '').replace(/−/g, '-');
@@ -98,6 +105,7 @@ function resolveDocumentScope(question, uploadedNames, activeNames) {
 }
 
 function quizRequest(question) {
+    question = question.replace(/\bmultiple[ -]choices\b/gi, 'multiple choice').replace(/\bidentification\b/gi, 'short-answer questions').replace(/^\s*what about\s+/i, '');
     if (!/\b(?:quiz|quizzes|reviewer|flashcards?|multiple[ -]choice|mcqs?|practice questions|short[ -]answer questions|definition questions|fill[ -]in[ -]the[ -]blank)\b/i.test(question)) return null;
     const kind = /\b(?:multiple[ -]choice|mcqs?)\b/i.test(question) ? 'multiple-choice' : /\bflashcards?\b/i.test(question) ? 'flashcards' : /\b(?:term[ -]definition|definitions?)\b/i.test(question) ? 'definition' : /\bshort[ -]answer\b/i.test(question) ? 'short-answer' : 'fill';
     const countMatch = question.match(/\b(\d{1,2})\s+(?:(?:multiple[ -]choice|short[ -]answer|practice|definition)\s+)?(?:quiz(?:zes)?|questions?|flashcards?|mcqs?)\b/i);
@@ -113,15 +121,20 @@ function makeSourceQuiz(chunks, limit = 5, kind = 'fill', topic = '') {
         const sentences = chunk.text.split(/\n+|(?<=[.!?])\s+/u);
         for (const raw of sentences) {
             const sentence = raw.replace(/^\s*[•\-*]\s*/, '').trim();
-            if (sentence.length < 25 || sentence.length > 240 || !/[.!?]$/.test(sentence)) continue;
+            if (sentence.length < 25 || sentence.length > 240 || (!/[.!?]$/.test(sentence) && !sentence.includes(':'))) continue;
             if (topic && !questionHasEvidence(topic, [{ text: sentence }])) continue;
             const words = [...sentence.matchAll(/\b[A-Za-z]{5,}\b/g)];
-            if (words.length < 3 || seen.has(sentence.toLowerCase())) continue;
+            if (words.length < 2 || seen.has(sentence.toLowerCase())) continue;
             let word = words.at(-1);
             let answer = word[0];
             let prompt = sentence.slice(0, word.index) + '_____' + sentence.slice(word.index + word[0].length);
             let choices;
             const definition = sentence.match(/^(.{2,80}?)\s+(is defined as|refers to|is|are|means)\s+(.{5,150})[.!?]$/i);
+            const field = sentence.match(/^([^:]{2,60}):\s*(.{2,170})$/);
+            if (field && kind !== 'multiple-choice') {
+                prompt = `What is listed under ${field[1]}?`;
+                answer = field[2];
+            }
             if (kind === 'definition') {
                 if (!definition) continue;
                 prompt = `${definition[1]} ${definition[2]} _____`;
@@ -131,15 +144,15 @@ function makeSourceQuiz(chunks, limit = 5, kind = 'fill', topic = '') {
                 answer = sentence;
             }
             if (kind === 'multiple-choice') {
-                const list = sentence.match(/\b[A-Za-z]{3,}(?:,\s*[A-Za-z]{3,}){2,},?\s+(?:and|or)\s+[A-Za-z]{3,}\b/i);
+                const list = sentence.match(/\b[A-Za-z]{3,}(?:,\s*[A-Za-z]{3,}){1,},?\s+(?:and|or)\s+[A-Za-z]{3,}\b/i);
                 if (!list) continue;
                 const listWords = (list[0].match(/[A-Za-z]{3,}/g) || []).filter(item => !/^(?:and|or)$/i.test(item));
                 const alternatives = [...new Map(listWords.map(item => [item.toLowerCase(), item])).values()];
-                if (alternatives.length < 4 || alternatives.length !== listWords.length) continue;
+                if (alternatives.length < 3 || alternatives.length !== listWords.length) continue;
                 answer = alternatives.at(-1);
                 const answerIndex = list.index + list[0].lastIndexOf(answer);
                 prompt = sentence.slice(0, answerIndex) + '_____' + sentence.slice(answerIndex + answer.length);
-                choices = [...alternatives.slice(0, 3), answer];
+                choices = [...alternatives.slice(0, -1).slice(0, 3), answer];
                 const shift = questions.length % choices.length;
                 choices = [...choices.slice(shift), ...choices.slice(0, shift)];
             }
