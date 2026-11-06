@@ -27,7 +27,24 @@ function selectedOverviewChunks(chunks, names, maxPerDocument = 8) {
         const pages = [...byPage.entries()].sort((a, b) => a[0] - b[0])
             .map(([, chunk]) => chunk)
             .filter(chunk => chunk.text.trim().length >= 65);
-        const pool = pages.length ? pages : candidates.slice(0, 1);
+        // On one-page documents, different chunks hold distinct sections.
+        // Preserve those sections instead of discarding everything after
+        // the first chunk (common for resumes and registration forms).
+        let pool = byPage.size <= 1 ? candidates : (pages.length ? pages : candidates);
+        if (byPage.size > 1) {
+            const distinct = [];
+            const seenHeadings = new Set();
+            for (const chunk of pool) {
+                const heading = (chunk.text.split('\n').find(line => line.trim()) || '')
+                    .trim().toLowerCase().replace(/[^a-z0-9 ]/g, '').slice(0, 65);
+                if (heading && seenHeadings.has(heading)) continue;
+                if (heading) seenHeadings.add(heading);
+                distinct.push(chunk);
+            }
+            // Prefer chapter headings over repeated page headers when enough
+            // sections exist. Otherwise use page-spaced sampling.
+            if (distinct.length >= Math.min(maxPerDocument, pool.length)) pool = distinct;
+        }
         const count = Math.min(maxPerDocument, pool.length);
         if (count === 1) {
             result.push(pool[0]);
