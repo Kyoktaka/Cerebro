@@ -1,12 +1,15 @@
-# Cerebro design direction
+# Cerebro interface direction
 
-Reading this as a local study workspace for people reading and questioning PDFs. ENERGY 2 / RHYTHM 2 / MOTION 1.
+Cerebro is a conversation-first, local PDF study assistant.
 
-- Identity: a calm desk for close reading. The recurring motif is a document margin and clear page-like spacing, never a generic AI glow.
-- Color: warm paper and ink in light mode; AMOLED black and restrained gold in dark mode. Both themes keep the same hierarchy.
-- Layout: the conversation and source controls own the chat screen. Model choice sits at the top because it changes every answer; PDF focus sits beside the reading area.
-- Typography: Georgia gives headings an editorial voice; the system sans stack keeps controls and longer answers legible offline.
-- Spacing: generous reading width in the message area, compact tool controls, and clear pauses between page sections.
-- Components: solid surfaces, small radii, one raised menu or modal at a time. Active states use contrast and text, not glow.
-- Motion: short hover and open transitions only. Reduced-motion preference removes them.
-- Assets: keep the established Cerebro mark and real team photos. No new visual assets.
+- Starting screen: one primary prompt with only the upload, quiz, flashcard and summary shortcuts.
+- Authentication: compact, centered form using the existing username/password API. No nonworking Google sign-in control.
+- Workspace: compact sidebar with search, new chat, document access, study tools and existing account actions.
+- Conversation: centered readable answers, restrained message treatment, safe Markdown and source citations.
+- PDF reading: source chips for the active documents; cited pages open in a side viewer on wide screens or full-screen on mobile, with native PDF search and zoom.
+- Study: shortcut prompts reuse the existing reviewed quiz/flashcard/summary system, including its interactive one-question-at-a-time quiz flow.
+- Colors: neutral light and charcoal dark surfaces with one restrained warm accent. Dark backgrounds use #212121 and #171717 for the sidebar.
+- Motion: only short transitions, with reduced-motion support. Avoid marketing cards, decorative stats and fake interactions.
+- Constraints: preserve authentication, chat streaming, local Ollama model selection, PDF upload and retrieval, anti-hallucination checks, answer keys and saved conversation history.
+
+The interface is HTML, CSS and JavaScript. Business logic and API contracts remain in the existing Node server.
