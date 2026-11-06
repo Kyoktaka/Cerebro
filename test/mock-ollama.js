@@ -43,17 +43,24 @@ const server = http.createServer(async (req, res) => {
         requests.push(body);
         let answer = 'Local chat works.';
         if (body.format === 'json' || body.format?.type === 'object') {
-            if (body.format?.properties?.supported) {
-                const prompt = body.messages.at(-1).content;
-                const question = JSON.parse(prompt.split('QUESTION: ')[1].split('\nVERIFIED PDF QUOTES:')[0]);
-                const quotes = JSON.parse(prompt.split('VERIFIED PDF QUOTES: ')[1].split('\nDoes this evidence')[0]);
-                const { questionHasEvidence } = require('../rag');
-                answer = JSON.stringify({ supported: questionHasEvidence(question, quotes.map(item => ({ text: item.quote }))) });
+            const data = JSON.parse(body.messages.at(-1).content);
+            const schema = body.format.properties;
+            const { questionHasEvidence, makeSourceQuiz } = require('../rag');
+            if (schema.decision) {
+                const supported = !data.candidate.answer || questionHasEvidence(data.request.question, data.sources);
+                answer = JSON.stringify({ decision: supported ? 'approve' : 'reject',
+                    scores: { accuracy: 10, relevance: 10, completeness: 10, citations: 10, clarity: 10 }, feedback: '' });
+            } else if (schema.items) {
+                const items = data.sources.flatMap(source => makeSourceQuiz([{ pdfName: source.source, text: source.text }], 4, data.format)
+                    .map(q => ({ kind: data.format, ...q, choices: q.choices || [], hint: 'Recall the passage.', topic: source.source,
+                        explanation: q.evidence, evidence: [{ id: source.id, quote: q.evidence }] })))
+                    .filter(item => !data.alreadyAsked.includes(item.prompt));
+                answer = JSON.stringify({ items });
+            } else if (schema.correct) {
+                answer = JSON.stringify({ correct: data.student === data.key });
             } else {
-                const prompt = body.messages.at(-1).content;
-                const context = prompt.split('=== START RETRIEVED PDF CONTEXT ===\n')[1]?.split('\n=== END RETRIEVED PDF CONTEXT ===')[0];
-                const passages = JSON.parse(context);
-                answer = JSON.stringify({ evidence: passages.length ? [{ source: passages[0].source, quote: passages[0].text }] : [] });
+                const first = data.sources[0];
+                answer = JSON.stringify({ support: 'direct', answer: first.text, evidence: [{ id: first.id, quote: first.text }] });
             }
             if (chatReplyOverride !== null) answer = chatReplyOverride;
         }

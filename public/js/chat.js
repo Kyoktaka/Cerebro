@@ -1019,14 +1019,46 @@ if (fileInput) {
 
 function formatMessage(text, allowStudy = false) {
     if (!text) return '';
-    const render = value => escapeHtml(value).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+    const plain = value => escapeHtml(value).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+    const render = value => {
+        if (!allowStudy) return plain(value);
+        let html = '', offset = 0;
+        for (const match of value.matchAll(/\[([^\n]+?, p\. (\d+))\]\(cerebro:([a-f0-9]{64}):(\d+)\)/g)) {
+            if (match[2] !== match[4]) continue;
+            html += plain(value.slice(offset, match.index));
+            html += `<button type="button" class="source-citation" data-digest="${match[3]}" data-page="${match[4]}">${escapeHtml(match[1])}</button>`;
+            offset = match.index + match[0].length;
+        }
+        return html + plain(value.slice(offset));
+    };
     const marker = '\n\nAnswer key:\n';
     const markerIndex = allowStudy ? text.indexOf(marker) : -1;
-    if (markerIndex !== -1 && /^(?:Flashcards|Multiple choice|Complete the definitions|Short answer|Fill in the blanks)/.test(text)) {
+    if (markerIndex !== -1 && /^(?:Reviewed study set|Flashcards|Multiple choice|Complete the definitions|Short answer|Fill in the blanks)/.test(text)) {
         return `${render(text.slice(0, markerIndex))}<details class="study-answers"><summary>Show answers</summary>${render(text.slice(markerIndex + marker.length))}</details>`;
     }
     return render(text);
 }
+
+chatMessages?.addEventListener('click', async event => {
+    const citation = event.target.closest('.source-citation');
+    if (!citation) return;
+    const tab = window.open('about:blank', '_blank');
+    if (!tab) return addMessageToUI('Allow a new tab to open the cited PDF page.', 'notice');
+    tab.opener = null;
+    try {
+        const response = await fetch(API_BASE_URL + '/source', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId, conversationId: currentConversationId, digest: citation.dataset.digest })
+        });
+        if (!response.ok) throw new Error();
+        const url = URL.createObjectURL(await response.blob());
+        tab.location.replace(url + '#page=' + citation.dataset.page);
+        setTimeout(() => URL.revokeObjectURL(url), 120000);
+    } catch {
+        tab.close();
+        addMessageToUI('Select the cited PDF in Sources. If it was removed, upload the original again.', 'notice');
+    }
+});
 
 function showTypingIndicator() {
     const typingDiv = document.createElement('div');

@@ -4,7 +4,7 @@ const express = require('express');
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
-const pdfParse = require('pdf-parse');
+
 const {
     OLLAMA_MODEL,
     OLLAMA_EMBED_MODEL,
@@ -15,13 +15,14 @@ const {
     modelsWithCapability,
     requireCapability,
     installedModel,
-    embedTexts,
-    openChat
+    embedTexts
 } = require('./local-ai');
-const { chunkText, retrieveChunks, questionHasEvidence, resolveDocumentScope, quizRequest, makeSourceQuiz } = require('./rag');
-const { EVIDENCE_SCHEMA, REVIEW_SCHEMA, groundingMessages, validateEvidence, reviewMessages, validateReview } = require('./grounding');
+const { resolveDocumentScope } = require('./rag');
+const { queryVariants, choosePassages } = require('./retrieval');
+const { modelCaller, tutorAnswer, review, passages, location } = require('./tutor');
+const { studyRequest, buildStudy, studySet, advanceQuiz, questionAt, shortfall } = require('./study');
 const { documentAnswer } = require('./document-answers');
-const { renderPageText } = require('./pdf-text');
+const { extractDocument, documentChunks, packDocuments, originalDir, saveOriginals } = require('./pdf-source');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -101,7 +102,10 @@ function deleteIndex(user, conversationId) {
     if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
 }
 
-function parsePdfContent(content, names) {
+function parsePdfContent(content, names, meta) {
+    if (Array.isArray(meta) && names.every(name => meta.some(doc => doc.name === name))) {
+        return meta.filter(doc => names.includes(doc.name)).map(doc => ({ ...doc, text: content.slice(doc.start, doc.end) }));
+    }
     let cursor = 0;
     const documents = [];
     for (let i = 0; i < names.length; i++) {
@@ -118,6 +122,7 @@ function parsePdfContent(content, names) {
 }
 
 function setSessionConversation(session, conversation, conversationId) {
+    session.pdfMeta = conversation?.pdfMeta;
     session.currentConversationId = conversationId;
     session.pdfContent = conversation?.pdfContent || '';
     session.pdfNames = conversation?.pdfNames || [];
@@ -131,35 +136,38 @@ function syncRequestedConversation(session, conversationId) {
     const user = session.user && loadUser(session.user.lastName);
     const conversation = user?.conversations?.find(item => item.id === conversationId);
     if (!conversation) return false;
-    if (session.currentConversationId !== conversationId) {
-        setSessionConversation(session, conversation, conversationId);
-    }
+    setSessionConversation(session, conversation, conversationId);
     return true;
 }
 
 async function indexDocuments(documents) {
-    const chunks = documents.flatMap(document =>
-        chunkText(document.text).map(text => ({ pdfName: document.name, text }))
-    );
+    const chunks = documents.flatMap(documentChunks);
     const vectors = await embedTexts(chunks.map(chunk => chunk.text));
     return chunks.map((chunk, i) => ({ ...chunk, embedding: vectors[i] }));
 }
 
-function indexCoversDocuments(index, names) {
+function indexCoversDocuments(index, names, meta) {
     return index?.embeddingModel === OLLAMA_EMBED_MODEL && Array.isArray(index.chunks) &&
+        index.chunks.every(chunk => names.includes(chunk.pdfName) &&
+            chunk.digest === meta?.find(doc => doc.name === chunk.pdfName)?.digest) &&
         names.every(name => index.chunks.some(chunk => chunk.pdfName === name));
 }
 
 async function ensurePdfIndex(session, conversationId, models) {
     const storedIndex = session.pdfIndex || loadIndex(session.user, conversationId);
-    if (indexCoversDocuments(storedIndex, session.pdfNames)) {
+    if (indexCoversDocuments(storedIndex, session.pdfNames, session.pdfMeta)) {
         session.pdfIndex = storedIndex;
         return storedIndex;
     }
     installedModel(models, OLLAMA_EMBED_MODEL);
-    const documents = parsePdfContent(session.pdfContent, session.pdfNames);
+    const documents = parsePdfContent(session.pdfContent, session.pdfNames, session.pdfMeta);
     const index = { embeddingModel: OLLAMA_EMBED_MODEL, chunks: await indexDocuments(documents) };
-    saveIndex(session.user, conversationId, index);
+    if (conversationId) {
+        const current = loadUser(session.user.lastName)?.conversations?.find(item => item.id === conversationId);
+        if (!current || current.pdfContent !== session.pdfContent || JSON.stringify(current.pdfMeta) !== JSON.stringify(session.pdfMeta))
+            throw new OllamaError('PDFs changed during indexing. Please retry.', 409);
+        saveIndex(session.user, conversationId, index);
+    }
     session.pdfIndex = index;
     return index;
 }
@@ -274,7 +282,10 @@ app.post('/api/auth/delete-account', (req, res) => {
     const session = userSessions.get(req.body.sessionId);
     if (session && session.user) {
         const user = loadUser(session.user.lastName);
-        for (const conversation of user?.conversations || []) deleteIndex(session.user, conversation.id);
+        for (const conversation of user?.conversations || []) {
+            deleteIndex(session.user, conversation.id);
+            fs.rmSync(originalDir(session.user, conversation.id), { recursive: true, force: true });
+        }
         const filePath = getUserFilePath(session.user.lastName);
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         userSessions.delete(req.body.sessionId);
@@ -301,7 +312,7 @@ app.get('/api/conversations/:sessionId', (req, res) => {
     const user = loadUser(session.user.lastName);
     const conversations = user?.conversations || [];
 
-    res.json({ conversations: conversations.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)) });
+    res.json({ conversations: conversations.map(({ practice, ...conversation }) => conversation).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)) });
 });
 
 app.post('/api/conversations/create', (req, res) => {
@@ -323,6 +334,7 @@ app.post('/api/conversations/create', (req, res) => {
     user.conversations.push(newConversation);
     saveUser(user);
 
+    session.pdfMeta = [];
     session.pdfContent = '';
     session.pdfNames = [];
     session.activePdfNames = [];
@@ -340,6 +352,7 @@ app.post('/api/conversations/:sessionId/clear-pdfs', (req, res) => {
     if (!syncRequestedConversation(session, convId)) {
         return res.status(404).json({ error: 'Conversation not found.' });
     }
+    session.pdfMeta = [];
     session.pdfContent = '';
     session.pdfNames = [];
     session.activePdfNames = [];
@@ -347,10 +360,13 @@ app.post('/api/conversations/:sessionId/clear-pdfs', (req, res) => {
     session.pdfIndex = null;
 
     deleteIndex(session.user, convId);
+    if (convId) fs.rmSync(originalDir(session.user, convId), { recursive: true, force: true });
     if (convId && session.user) {
         const user = loadUser(session.user.lastName);
         const conversation = user.conversations?.find(c => c.id === convId);
         if (conversation) {
+            delete conversation.practice;
+            delete conversation.pdfMeta;
             delete conversation.pdfContent;
             delete conversation.pdfNames;
             delete conversation.activePdfNames;
@@ -380,6 +396,7 @@ app.post('/api/conversations/:sessionId/focus-pdf', (req, res) => {
             const user = loadUser(session.user.lastName);
             const conversation = user.conversations?.find(c => c.id === conversationId);
             if (conversation) {
+                if (JSON.stringify(conversation.activePdfNames) !== JSON.stringify(activePdfNames)) delete conversation.practice;
                 conversation.activePdfNames = activePdfNames;
                 saveUser(user);
             }
@@ -402,9 +419,11 @@ app.post('/api/conversations/:sessionId/delete-pdf', (req, res) => {
     if (!session.pdfNames.includes(pdfName)) return res.status(404).json({ error: 'PDF not found.' });
 
     const updatedNames = (session.pdfNames || []).filter(n => n !== pdfName);
-    const remainingDocuments = parsePdfContent(session.pdfContent, session.pdfNames)
+    const remainingDocuments = parsePdfContent(session.pdfContent, session.pdfNames, session.pdfMeta)
         .filter(document => document.name !== pdfName);
-    const allContent = remainingDocuments.map(document => `\n\n--- ${document.name} ---\n\n${document.text}`).join('');
+    const { content: allContent, meta } = packDocuments(remainingDocuments);
+    const removed = session.pdfMeta?.find(doc => doc.name === pdfName);
+    session.pdfMeta = meta;
     session.pdfContent = allContent;
     session.pdfNames = updatedNames;
     session.activePdfNames = (session.activePdfNames || []).filter(n => n !== pdfName);
@@ -423,6 +442,9 @@ app.post('/api/conversations/:sessionId/delete-pdf', (req, res) => {
             const user = loadUser(session.user.lastName);
             const conversation = user.conversations?.find(c => c.id === conversationId);
             if (conversation) {
+                delete conversation.practice;
+                conversation.pdfMeta = meta;
+                if (removed?.digest && !meta.some(doc => doc.digest === removed.digest)) fs.rmSync(path.join(originalDir(session.user, conversationId), removed.digest), { force: true });
                 if (updatedNames.length === 0) {
                     delete conversation.pdfContent;
                     delete conversation.pdfNames;
@@ -487,7 +509,9 @@ app.delete('/api/conversations/:sessionId/:conversationId', (req, res) => {
     user.conversations = user.conversations?.filter(c => c.id !== req.params.conversationId);
     saveUser(user);
     deleteIndex(session.user, req.params.conversationId);
+    fs.rmSync(originalDir(session.user, req.params.conversationId), { recursive: true, force: true });
     if (session.currentConversationId === req.params.conversationId) {
+        session.pdfMeta = [];
         session.pdfContent = '';
         session.pdfNames = [];
         session.activePdfNames = [];
@@ -542,12 +566,11 @@ app.post('/api/upload', (req, res, next) => {
             user = loadUser(session.user.lastName);
             conversation = user?.conversations?.find(c => c.id === conversationId);
             if (!conversation) return res.status(404).json({ error: 'Conversation not found.' });
-            if (session.currentConversationId !== conversationId) {
-                setSessionConversation(session, conversation, conversationId);
-            }
+            setSessionConversation(session, conversation, conversationId);
         }
         const state = {
             pdfContent: session.pdfContent,
+            pdfMeta: session.pdfMeta,
             pdfNames: [...session.pdfNames],
             activePdfNames: [...(session.activePdfNames || [])],
             pdfIndex: session.pdfIndex,
@@ -565,7 +588,7 @@ app.post('/api/upload', (req, res, next) => {
             return res.status(400).json({ error: 'PDF names must be unique within a conversation.' });
         }
 
-        const existingDocuments = parsePdfContent(state.pdfContent || '', state.pdfNames);
+        const existingDocuments = parsePdfContent(state.pdfContent || '', state.pdfNames, state.pdfMeta);
         let totalChars = existingDocuments.reduce((sum, document) => sum + document.text.length, 0);
         const newDocuments = [];
         let truncated = false;
@@ -575,32 +598,21 @@ app.post('/api/upload', (req, res, next) => {
             if (dataBuffer.subarray(0, 5).toString() !== '%PDF-') {
                 return res.status(400).json({ error: `File ${file.originalname} is not a PDF.` });
             }
-            // Copy pooled Buffer bytes so PDF.js reads only this file.
-            const pdfData = await pdfParse(new Uint8Array(dataBuffer), { pagerender: renderPageText });
-            let extractedText = pdfData.text?.trim() || '';
-
-            if (!extractedText) {
-                return res.status(400).json({ error: `File ${file.originalname} contains no readable text.` });
-            }
-
-            if (totalChars + extractedText.length > MAX_TOTAL_CHARS) {
-                const remaining = MAX_TOTAL_CHARS - totalChars;
-                if (remaining <= 0) {
-                    return res.status(400).json({ error: `Total content limit reached (${MAX_TOTAL_CHARS} chars).` });
-                }
-                extractedText = extractedText.substring(0, remaining);
-                truncated = true;
-            }
-
-            newDocuments.push({ name: file.originalname, text: extractedText });
-            totalChars += extractedText.length;
+            const remaining = MAX_TOTAL_CHARS - totalChars;
+            if (remaining <= 0) return res.status(400).json({ error: 'Conversation text limit reached.' });
+            const doc = await extractDocument(dataBuffer, file.originalname, remaining);
+            if (!doc.text.trim()) return res.status(400).json({ error: `File ${file.originalname} contains no readable text within the remaining limit. Try a text-based PDF or OCR.` });
+            if (!conversationId) delete doc.digest;
+            truncated ||= doc.truncated;
+            newDocuments.push(doc);
+            totalChars += doc.text.length;
         }
 
         const models = await listModels();
         const embeddingModel = installedModel(models, OLLAMA_EMBED_MODEL);
         await requireCapability(embeddingModel, 'embedding');
         const storedIndex = state.pdfIndex || loadIndex(session.user, conversationId);
-        const existingChunks = indexCoversDocuments(storedIndex, state.pdfNames)
+        const existingChunks = indexCoversDocuments(storedIndex, state.pdfNames, state.pdfMeta)
             ? storedIndex.chunks
             : await indexDocuments(existingDocuments);
         const newChunks = await indexDocuments(newDocuments);
@@ -609,7 +621,7 @@ app.post('/api/upload', (req, res, next) => {
             chunks: [...existingChunks, ...newChunks]
         };
         const documents = [...existingDocuments, ...newDocuments];
-        const allText = documents.map(document => `\n\n--- ${document.name} ---\n\n${document.text}`).join('');
+        const { content: allText, meta } = packDocuments(documents);
         const fileNames = documents.map(document => document.name);
         let activePdfNames = [...new Set([...state.activePdfNames, ...incomingNames])];
 
@@ -623,6 +635,9 @@ app.post('/api/upload', (req, res, next) => {
                 ...(latestConversation.activePdfNames || latestConversation.pdfNames || []),
                 ...incomingNames
             ])];
+            saveOriginals(session.user, conversationId, req.files, newDocuments);
+            latestConversation.pdfMeta = meta;
+            delete latestConversation.practice;
             latestConversation.pdfNames = fileNames;
             latestConversation.activePdfNames = activePdfNames;
             latestConversation.pdfContent = allText;
@@ -635,6 +650,7 @@ app.post('/api/upload', (req, res, next) => {
             activePdfNames = [...new Set([...(session.activePdfNames || []), ...incomingNames])];
         }
         if (session.currentConversationId === state.currentConversationId && session.pdfContent === state.pdfContent) {
+            session.pdfMeta = meta;
             session.pdfContent = allText;
             session.pdfNames = fileNames;
             session.activePdfNames = activePdfNames;
@@ -662,14 +678,29 @@ app.post('/api/upload', (req, res, next) => {
     }
 });
 
-function saveChatMessage(session, conversationId, message, answer) {
+app.post('/api/source', (req, res) => {
+    const { sessionId, conversationId, digest } = req.body;
+    const session = userSessions.get(sessionId);
+    if (!session) return res.status(401).end();
+    const conversation = loadUser(session.user.lastName)?.conversations?.find(c => c.id === conversationId);
+    const selected = conversation?.activePdfNames || conversation?.pdfNames || [];
+    if (typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest) || !conversation?.pdfMeta?.some(doc => doc.digest === digest && selected.includes(doc.name))) return res.status(404).end();
+    res.set('Cache-Control','no-store').type('application/pdf').sendFile(path.join(originalDir(session.user, conversationId), digest));
+});
+
+function saveChatMessage(session, conversationId, message, answer, update) {
     if (!conversationId || !session.user) return;
     const user = loadUser(session.user.lastName);
     const conversation = user?.conversations?.find(c => c.id === conversationId);
-    if (!conversation) return;
+    if (!conversation) throw new OllamaError('Conversation was deleted.', 409);
+    if (update) {
+        if (conversation.pdfContent !== update.content || JSON.stringify(conversation.activePdfNames || conversation.pdfNames) !== JSON.stringify(update.names) ||
+            conversation.messages?.length !== update.turn) throw new OllamaError('Conversation changed. Please retry.', 409);
+        conversation.practice = update.practice;
+    }
     conversation.messages = conversation.messages || [];
     conversation.messages.push({ role: 'user', content: message, timestamp: new Date().toISOString() });
-    conversation.messages.push({ role: 'assistant', content: answer, timestamp: new Date().toISOString() });
+    conversation.messages.push({ role: 'assistant', content: answer, topic: update?.topic, scope: update?.scope, timestamp: new Date().toISOString() });
     conversation.updatedAt = new Date().toISOString();
     if (conversation.messages.length === 2 && conversation.title === 'New Conversation') {
         conversation.title = message.substring(0, 40) + (message.length > 40 ? '...' : '');
@@ -677,8 +708,8 @@ function saveChatMessage(session, conversationId, message, answer) {
     saveUser(user);
 }
 
-function sendStudyAnswer(res, session, conversationId, message, answer, stream, mode = 'study') {
-    saveChatMessage(session, conversationId, message, answer);
+function sendStudyAnswer(res, session, conversationId, message, answer, stream, mode = 'study', update) {
+    saveChatMessage(session, conversationId, message, answer, update);
     if (stream === true) {
         res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
         res.setHeader('Cache-Control', 'no-cache');
@@ -703,13 +734,12 @@ app.post('/api/chat', async (req, res) => {
             const user = loadUser(session.user.lastName);
             conversation = user?.conversations?.find(c => c.id === conversationId);
             if (!conversation) return res.status(404).json({ error: 'Conversation not found.' });
-            if (session.currentConversationId !== conversationId) {
-                setSessionConversation(session, conversation, conversationId);
-            }
+            setSessionConversation(session, conversation, conversationId);
         }
         const pdfContext = {
             user: session.user,
             pdfContent: session.pdfContent,
+            pdfMeta: session.pdfMeta,
             pdfNames: [...session.pdfNames],
             activePdfNames: [...(session.activePdfNames || session.pdfNames)],
             pdfIndex: session.pdfIndex
@@ -726,40 +756,67 @@ app.post('/api/chat', async (req, res) => {
             const scope = resolveDocumentScope(message, pdfContext.pdfNames, pdfContext.activePdfNames);
             if (scope.error) return sendStudyAnswer(res, session, conversationId, message, scope.error, stream);
             if (!scope.names.length) return sendStudyAnswer(res, session, conversationId, message, 'Select a PDF in Sources before asking a question.', stream);
-            const documents = parsePdfContent(pdfContext.pdfContent, pdfContext.pdfNames).filter(document => scope.names.includes(document.name));
-            const directAnswer = documents.length ? documentAnswer(scope.query, documents) : null;
-            if (directAnswer) return sendStudyAnswer(res, session, conversationId, message, directAnswer, stream);
+            const docs = parsePdfContent(pdfContext.pdfContent, pdfContext.pdfNames, pdfContext.pdfMeta).filter(doc => scope.names.includes(doc.name));
+            const update = { content: pdfContext.pdfContent, names: pdfContext.activePdfNames, turn: conversation?.messages?.length, scope: scope.names };
+            const respond = (answer, extra = {}) => sendStudyAnswer(res, session, conversationId, message, answer, stream, 'study', { ...update, ...extra });
+            const call = modelCaller(selectedModel, controller.signal);
+            const settings = studyRequest(scope.query);
+            if (conversation?.practice && !settings && conversation.practice.names.every(name => scope.names.includes(name))) {
+                const result = await advanceQuiz(call, conversation.practice, scope.query);
+                return respond(result.text, { practice: result.state });
+            }
+            const refusal = docs.some(doc => doc.incomplete)
+                ? "I couldn't reliably retrieve the information needed from this PDF. Some pages were unreadable or trimmed. Check the original or upload a clearer copy."
+                : 'I cannot answer that question because the requested information is not supported by your currently selected document. Please ask something related to the uploaded material.';
             const embeddingModel = installedModel(models, OLLAMA_EMBED_MODEL);
             await requireCapability(embeddingModel, 'embedding');
             const index = await ensurePdfIndex(pdfContext, conversationId, models);
-            const selectedChunks = index.chunks.filter(chunk => scope.names.includes(chunk.pdfName));
-            if (!selectedChunks.length) {
-                throw new OllamaError('No readable text found in the focused PDFs.', 422);
+            const selected = index.chunks.filter(c => scope.names.includes(c.pdfName));
+            if (!selected.length) return respond('No readable passages were available. Try a text-based PDF or OCR.');
+            const previous = conversation?.messages?.at(-1);
+            const followup = /^(?:(?:can|could) you )?(?:(?:explain|simplify|rephrase) (?:that|it)|(?:give me |show me )?an example|what about (?:it|its|the)|(?:make|say) (?:it|that)|tell me more|what is its|what is the difference between them)/i.test(scope.query);
+            const sameScope = previous?.topic && JSON.stringify(previous.scope) === JSON.stringify(scope.names);
+            if (followup && !sameScope) return respond('Which term or passage would you like me to explain?');
+            const history = followup ? { question: previous.topic, answer: previous.content.slice(0, 1500) } : undefined;
+            const variants = queryVariants(scope.query, selected);
+            const query = [history?.question, scope.query, variants].filter(Boolean).join(' ');
+            const [vector] = await embedTexts([query], OLLAMA_EMBED_MODEL);
+            const comparison = /\b(compare|contrast|difference|different|similarities|differ|versus|vs)\b/i.test(message);
+            const ranked = choosePassages(selected, scope.names, vector, comparison);
+            if (settings) {
+                if (!Number.isSafeInteger(settings.count) || settings.count < 1 || settings.count > 100)
+                    return respond('Choose between 1 and 100 items per study set.');
+                if (settings.interactive && !conversation) return respond('Open a saved conversation to start an interactive quiz.');
+                const pool = [...ranked, ...selected.filter(c => !ranked.some(r => r.pdfName === c.pdfName && r.text === c.text))];
+                const items = await buildStudy(call, settings, pool);
+                if (!items.length) return respond('I could not find suitable passages for a reviewed study set with those settings. Try another topic or format.');
+                if (!settings.interactive) return respond(studySet(items, settings.count));
+                const practice = { items, names: scope.names, index: 0, results: [], retry: false };
+                return respond(shortfall(items, settings.count) + questionAt(practice) + '\n\nReply with your answer, “hint”, “skip”, or “end quiz”.', { practice });
             }
-            const refusal = 'I cannot answer this question because the information is not present in your uploaded PDF document(s).';
-            const quiz = quizRequest(scope.query);
-            if (quiz) {
-                const studyChunks = quiz.topic ? selectedChunks.filter(chunk => questionHasEvidence(quiz.topic, [chunk])) : selectedChunks;
-                if (!studyChunks.length) return sendStudyAnswer(res, session, conversationId, message, refusal, stream);
-                const questions = makeSourceQuiz(studyChunks, quiz.count, quiz.kind, quiz.topic);
-                const label = quiz.kind === 'flashcards' ? 'Flashcards: recall each answer' : quiz.kind === 'multiple-choice' ? 'Multiple choice: choose the word missing from the exact passage' : quiz.kind === 'definition' ? 'Complete the definitions from your PDFs' : quiz.kind === 'short-answer' ? 'Short answer: recall or complete each passage' : 'Fill in the blanks using your PDFs';
-                const answer = questions.length
-                    ? `${label}:${questions.length < quiz.count ? ` (${questions.length} of ${quiz.count} requested; not enough suitable passages found.)` : ''}\n\n${questions.map((item, i) => `${i + 1}. ${item.prompt} [${item.source}]${item.choices ? `\n${item.choices.map((choice, j) => `${String.fromCharCode(65 + j)}. ${choice}`).join('\n')}` : ''}`).join('\n\n')}\n\nAnswer key:\n${questions.map((item, i) => `${i + 1}. ${item.answer} [${item.source}]\nEvidence: ${item.evidence}`).join('\n\n')}`
-                    : 'I could not find suitable passages for that study format in the requested PDFs. Try another format or a text-based PDF.';
-                return sendStudyAnswer(res, session, conversationId, message, answer, stream);
+            // Preserve the registration form's deterministic table parser.
+            const direct = documentAnswer(scope.query, docs);
+            const tableAnswer = direct && (/Registration summary|distinct subject codes|subject-code table|Subject codes found/.test(direct));
+            if (tableAnswer) {
+                // Review derived counts against rows from the same table, and excerpts in document order.
+                const relevant = selected.filter(c => c.text.split(/\n|(?<=[.!?])\s+/).some(line => {
+                    const prefix = line.trim().slice(0, 36);
+                    return prefix.length >= 4 && direct.includes(prefix);
+                }));
+                const context = (relevant.length ? relevant : ranked).slice(0, 6);
+                if ((await review(call, scope.query, direct, passages(context), 'Check each extracted detail and recompute any stated totals.')).approved) {
+                    return respond(direct + '\n\nReviewed sources\n' + [...new Set(context.map(c => location({ source: c.pdfName, page: c.page, digest: c.digest })))].join('\n'), { topic: scope.query });
+                }
             }
-            const [questionVector] = await embedTexts([scope.query], OLLAMA_EMBED_MODEL);
-            const chunks = retrieveChunks({ chunks: selectedChunks }, scope.names, questionVector);
-            const response = await openChat(selectedModel, groundingMessages(scope.query, chunks), false, controller.signal, EVIDENCE_SCHEMA);
-            const result = await response.json();
-            if (result.error) throw new OllamaError(`Ollama request failed: ${result.error}`, 502);
-            const evidenceQuotes = validateEvidence(result.message?.content, chunks, scope.query);
-            if (!evidenceQuotes.length) return sendStudyAnswer(res, session, conversationId, message, refusal, stream);
-            const reviewResponse = await openChat(selectedModel, reviewMessages(scope.query, evidenceQuotes), false, controller.signal, REVIEW_SCHEMA);
-            const reviewResult = await reviewResponse.json();
-            if (!validateReview(reviewResult.message?.content)) return sendStudyAnswer(res, session, conversationId, message, refusal, stream);
-            const answer = `Passages from your PDFs (check whether they answer your question):\n\n${evidenceQuotes.map(item => `Source: ${item.source}\n${item.quote}`).join('\n\n')}`;
-            return sendStudyAnswer(res, session, conversationId, message, answer, stream);
+            const summary = /\b(summar(?:ize|ise|y)|overview)\b/i.test(scope.query);
+            const context = summary && !comparison ? [...new Set(docs.flatMap(doc => {
+                const parts = selected.filter(c => c.pdfName === doc.name);
+                const count = Math.min(parts.length, Math.max(1, Math.floor(6 / docs.length)));
+                return Array.from({ length: count }, (_, i) => parts[count === 1 ? 0 : Math.round(i * (parts.length-1)/(count-1))]);
+            }))] : ranked;
+            const request = scope.query === 'summarize' && !/summari[sz]e/i.test(message) ? 'Summarize ' + message : message;
+            const answer = await tutorAnswer(call, request, context, history, comparison ? scope.names : []);
+            return respond(answer?.text || refusal, { topic: answer?.topic ? (history?.question || answer.topic) : undefined });
         }
 
     } catch (error) {

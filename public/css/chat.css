@@ -209,3 +209,13 @@ body.sidebar-collapsed .menu-toggle { display: inline-grid; }
     .upload-btn span { display: none; }
     .chat-input-area { padding-inline: 12px; }
 }
+
+.source-citation {
+    color: inherit;
+    font: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    text-decoration: underline;
+    cursor: pointer;
+}

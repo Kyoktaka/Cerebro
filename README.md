@@ -1,6 +1,6 @@
 # Cerebro
 
-Cerebro is a local PDF study app. It extracts text from your PDFs, uses local Ollama embeddings to find passages, and verifies model-selected quotations against the source. It builds extractive study materials. No cloud API key is required.
+Cerebro is a local PDF study app. It extracts text from your PDFs, uses local Ollama embeddings to find passages, and verifies model-selected quotations against the source. It generates answers and study sets, checks cited quotes, and sends each draft to a separate local model call for review. No cloud API key is required.
 
 ## Start locally
 
@@ -54,12 +54,14 @@ OLLAMA_NUM_CTX=8192
 - Upload a text-based PDF in a conversation. Cerebro extracts the text locally, divides it into passages, and embeds the passages through Ollama. Questions search those passages.
 - Upload up to 10 PDFs per conversation, at most 10 MB each. Extracted text across the conversation is limited to 1,000,000 characters.
 - Select which uploaded PDFs to focus on or remove a PDF. Without a PDF, Cerebro asks you to upload one instead of answering from general knowledge.
-- For questions, Ollama selects quotations from retrieved passages. Cerebro checks their exact source, then makes a separate model call to review whether the evidence answers the question. Failed reviews are refused. Conversations are saved locally.
-- Ask for a quiz, flashcards, short-answer questions, definitions, or multiple-choice questions. A plain quiz requests 10 multiple-choice questions; specify a count or format to customize it, and optionally a topic or selected filename such as `alpha.pdf`. The answer key reveals the exact supporting sentence and source. Multiple-choice options come from an explicit list in the same sentence; if there are not enough suitable passages, Cerebro says how many it could make.
+- Ask a question or enter a term. Cerebro checks quoted evidence against selected passages and independently reviews the answer. Each of five review scores must reach 9/10. A requested revision gets one more generation and review attempt.
+- Click a page citation to open the original PDF in a new tab. Older uploads without page metadata use filename and passage citations. Upload them again for page links.
+- Ask for a quiz, flashcards, or a mixed-format study set. A plain quiz requests 10 four-option multiple-choice questions. For example, try `Create 5 hard identification questions from biology.pdf`. Each item, key, hint, and explanation goes through review. Cerebro shows the number approved if fewer pass.
+- Type `Quiz me` for one question at a time. Reply with an answer, `hint`, `skip`, or `end quiz`. The final score uses first attempts and lists topics and cited sections to revisit. Progress is saved with the conversation. Changing the selected PDFs ends the practice session.
 - Name a selected PDF to limit the current request to that file. With no file named, Cerebro uses the selected PDFs. It refuses requests for unavailable or unselected PDFs.
 - Use the theme button in the header to switch between light and dark mode. Cerebro remembers your choice and starts in dark mode.
 
-PDF mode quotes source text rather than generating a free-form explanation. General summaries return sampled document highlights. Study prompts use source sentences and do not add model-written claims. The separate reviewer can still make a mistake; quotation validation does not prove entailment. Review important passages in the original PDF. Image-only or scanned PDFs need OCR before Cerebro can read their text.
+Cerebro checks exact quotations in extracted text. Reviews assess meaning and relevance and depend on the selected local model. Scanned pages require OCR. Summaries sample passages from across the selected sources.
 
 Evidence selection uses Ollama's [structured output schema](https://docs.ollama.com/capabilities/structured-outputs) at temperature zero, followed by exact-source validation. Use an Ollama version that supports JSON schemas in the chat endpoint. Model capability discovery does not guarantee that every model follows the task equally well.
 
@@ -79,7 +81,7 @@ The application itself uses Node.js. [grounded_ollama.py](examples/python/ground
 
 Run `python examples/python/grounded_ollama.py context.json`. The wrapper uses `OLLAMA_BASE_URL` and `OLLAMA_MODEL`, disables LangSmith tracing in its CLI, and validates that each returned quote exactly appears in the selected source. It does not extract PDFs or build a vector index. The model can still select an irrelevant genuine quote, so quotation validation is not a guarantee of relevance or entailment. Check important answers in the PDF. The wrapper sends the provided context to the configured Ollama endpoint; choose a trusted local endpoint.
 
-Account and conversation records live in `users/`; PDF search indexes live in `indexes/`. These directories are local and ignored by Git. Passwords are stored in plaintext, and the password recovery endpoint can return them. Use a unique password and do not expose Cerebro to the public internet.
+Account and conversation records live in `users/`; PDF search indexes live in `indexes/`. New original PDFs live in `uploads/originals/` for citation viewing. Removing a PDF, clearing the sources, or deleting its conversation or account removes the associated originals. All three directories are local and ignored by Git. Passwords are stored in plaintext, and the password recovery endpoint can return them. Use a unique password and do not expose Cerebro to the public internet.
 
 ## API
 
@@ -90,13 +92,14 @@ Cerebro exposes these local endpoints:
 | `GET /api/health` | Check the Cerebro server. |
 | `GET /api/models` | Check the Ollama connection and list pulled chat models. Returns `available`, `models`, `defaultModel`, `embeddingModel`, and `embeddingAvailable`; may include `error`. |
 | `POST /api/upload` | Upload PDFs for a session and conversation. |
+| `POST /api/source` | Open a selected original PDF using the session, conversation, and citation digest. |
 | `POST /api/chat` | Ask a question. Accepts `message`, `sessionId`, `conversationId`, optional `model`, and `stream: true`. |
 
 With `stream: true`, `/api/chat` returns newline-delimited JSON. A `delta` event contains the validated response, a `done` event contains the completed `answer` and chat `mode`, and an `error` event reports a failure. PDF responses are buffered until validation completes; model tokens are not streamed directly. Cerebro checks each pulled model with Ollama's `/api/show` and lists only models that advertise the `completion` capability, excluding embedding-only models. Ollama's own API uses [`/api/tags`](https://docs.ollama.com/api/tags) to list models, [`/api/chat`](https://docs.ollama.com/api/chat) for chat, and [`/api/embed`](https://docs.ollama.com/api/embed) for embeddings.
 
 ## Troubleshooting
 
-General summary requests return sampled, quoted document highlights without relying on model output. For registration forms with a readable subject/unit/description table and a total-units line, Cerebro instead summarizes the distinct courses and checks parsed unit totals against the reported total. Subject-code listing and counting use the main course rows, not repeated permit or signature tables; evidence shows each code, unit count, and description. Counts describe recognized codes, not a guarantee that every subject was extracted. Unreadable tables receive an extraction-specific message. Re-upload older PDFs to use the updated extraction that separates table columns and rows; this is not OCR and complex layouts may still need a text-based export.
+General summary requests use sampled passages from across the selected documents. For registration forms with a readable subject/unit/description table and a total-units line, Cerebro instead summarizes the distinct courses and checks parsed unit totals against the reported total. Subject-code listing and counting use the main course rows, not repeated permit or signature tables; evidence shows each code, unit count, and description. Counts describe recognized codes, not a guarantee that every subject was extracted. Unreadable tables receive an extraction-specific message. Re-upload older PDFs to use the updated extraction that separates table columns and rows; this is not OCR and complex layouts may still need a text-based export.
 
 | Symptom | Check |
 | --- | --- |

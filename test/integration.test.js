@@ -128,13 +128,28 @@ test('local model discovery, grounded PDF responses, and persisted index', async
         assert.match(scoped.at(-1).answer, /1 of 10 requested/);
         assert.match(scoped.at(-1).answer, /alpha\.pdf/);
         assert.doesNotMatch(scoped.at(-1).answer, /beta\.pdf/);
-        assert.equal(requests.length, callsBeforeStudy);
+        assert.ok(requests.slice(callsBeforeStudy).some(request => request.format.properties.decision));
         const both = await streamChat(base, { message: 'fill-in-the-blank quiz from alpha.pdf and beta.pdf', sessionId, conversationId, model: 'llama3.2' });
         assert.match(both.at(-1).answer, /alpha\.pdf/);
         assert.match(both.at(-1).answer, /beta\.pdf/);
         const scopedQuestion = await streamChat(base, { message: 'What does alpha explain in alpha.pdf?', sessionId, conversationId, model: 'llama3.2' });
         assert.match(scopedQuestion.at(-1).answer, /Alpha document explains cells/);
         assert.doesNotMatch(scopedQuestion.at(-1).answer, /beta\.pdf/);
+        const citation = scopedQuestion.at(-1).answer.match(/p\. 1\]\(cerebro:([a-f0-9]{64}):1\)/);
+        assert.ok(citation);
+        const fetchSource = () => fetch(base + '/api/source', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId, conversationId, digest: citation[1] }) });
+        assert.deepEqual(Buffer.from(await (await fetchSource()).arrayBuffer()), makePdf('Alpha document explains cells.'));
+        const practice = await streamChat(base, { message: 'Interactive fill-in-the-blank quiz from alpha.pdf', sessionId, conversationId });
+        assert.match(practice.at(-1).answer, /Question 1 of 1/);
+        assert.doesNotMatch(practice.at(-1).answer, /Answer key|explains cells/);
+        const hint = await streamChat(base, { message: 'hint', sessionId, conversationId });
+        assert.match(hint.at(-1).answer, /Recall the passage/);
+        const retry = await streamChat(base, { message: 'wrong', sessionId, conversationId });
+        assert.match(retry.at(-1).answer, /Try again/);
+        const report = await streamChat(base, { message: 'skip', sessionId, conversationId });
+        assert.match(report.at(-1).answer, /First-attempt score: 0\/1/);
+        assert.match(report.at(-1).answer, /Review these sections/);
         const missing = await streamChat(base, { message: 'quiz from missing.pdf', sessionId, conversationId, model: 'llama3.2' });
         assert.match(missing.at(-1).answer, /not available/);
 
@@ -142,6 +157,7 @@ test('local model discovery, grounded PDF responses, and persisted index', async
             conversationId, pdfNames: ['beta.pdf']
         });
         assert.equal(focus.status, 200);
+        assert.equal((await fetchSource()).status, 404);
         assert.deepEqual(focus.body.pdfNames, ['alpha.pdf', 'beta.pdf']);
         assert.deepEqual(focus.body.activePdfNames, ['beta.pdf']);
         const unfocused = await streamChat(base, { message: 'quiz from alpha.pdf', sessionId, conversationId, model: 'llama3.2' });
@@ -158,8 +174,8 @@ test('local model discovery, grounded PDF responses, and persisted index', async
         assert.match(qwenStudy.at(-1).answer, /Beta document explains plants/);
         assert.equal(requests.at(-1).model, 'qwen2.5-coder:3b');
         assert.equal(requests.at(-1).format.type, 'object');
-        assert.deepEqual(requests.at(-2).format.properties.evidence.items.required, ['source', 'quote']);
-        assert.deepEqual(requests.at(-1).format.required, ['supported']);
+        assert.deepEqual(requests.at(-2).format.properties.evidence.items.required, ['id', 'quote']);
+        assert.deepEqual(requests.at(-1).format.required, ['decision', 'scores', 'feedback']);
         assert.equal(requests.at(-1).options.temperature, 0);
         for (const reply of [
             'fabricated response',
@@ -177,7 +193,7 @@ test('local model discovery, grounded PDF responses, and persisted index', async
         const quiz = await streamChat(base, { message: 'create me a quiz', sessionId, conversationId, model: 'llama3.2' });
         assert.match(quiz.at(-1).answer, /could not find suitable passages/);
         const unrelatedQuiz = await streamChat(base, { message: 'create a quiz about science', sessionId, conversationId, model: 'llama3.2' });
-        assert.match(unrelatedQuiz.at(-1).answer, /cannot answer/i);
+        assert.match(unrelatedQuiz.at(-1).answer, /could not find suitable passages/i);
 
         await stopCerebro(app);
         app = await startCerebro(port, ollamaPort);
