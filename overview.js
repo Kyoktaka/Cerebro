@@ -14,7 +14,7 @@ function isDocumentOverview(request) {
         const genericWords = new Set(['the', 'this', 'these', 'my', 'our', 'all', 'uploaded',
             'focused', 'selected', 'pdf', 'pdfs', 'file', 'files', 'document', 'documents',
             'content', 'contents', 'material', 'materials', 'in', 'simple', 'language',
-            'briefly', 'please', 'for', 'me', 'from', 'main', 'key', 'concepts', 'ideas',
+            'briefly', 'please', 'for', 'of', 'me', 'from', 'main', 'key', 'concepts', 'ideas',
             'topics', 'points', 'and', 'their', 'information']);
         const specific = (summaryStart[1].match(/[a-z0-9]+/g) || [])
             .filter(word => !genericWords.has(word));
