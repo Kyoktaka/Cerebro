@@ -18,21 +18,24 @@
     --shadow: 0 8px 26px rgba(0,0,0,.07);
 }
 html[data-theme="dark"] {
-    --page: #212121;
-    --surface: #212121;
-    --surface-2: #2b2b2b;
-    --sidebar: #171717;
-    --ink: #ececec;
-    --muted: #aaaeb3;
-    --line: #353535;
-    --control-line: #595959;
-    --accent: #dec19b;
-    --accent-soft: #34302a;
-    --action: #e7e7e7;
+    color-scheme: dark;
+    --page: #000000;
+    --surface: #000000;
+    --surface-2: #141414;
+    --sidebar: #080808;
+    --ink: #f1f1f1;
+    --muted: #a3a3a3;
+    --line: #252525;
+    --control-line: #3e3e3e;
+    --accent: #e6e6e6;
+    --accent-soft: #171717;
+    --action: #f3f3f3;
     --action-hover: #ffffff;
-    --action-ink: #202020;
-    --focus: #dec19b;
-    --shadow: 0 16px 36px rgba(0,0,0,.22);
+    --action-ink: #111111;
+    --success: #b7d4bb;
+    --danger: #f2a5a5;
+    --focus: #d8d8d8;
+    --shadow: 0 10px 28px rgba(0, 0, 0, .35);
 }
 html, body { max-width: 100%; }
 body { font-family: Inter, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; letter-spacing: -.012em; }
@@ -134,7 +137,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visib
 .chat-heading p { display: none; }
 .chat-title { font-size: .97rem; font-weight: 600; letter-spacing: -.015em; }
 .chat-tools { gap: 5px; }
-.chat-tools .theme-toggle { display: none; }
+.chat-tools .theme-toggle { display: inline-grid; }
 .model-control { gap: 7px; }
 .model-control label { display: none; }
 .model-control select { width: clamp(130px, 15vw, 205px); min-height: 38px; border-color: transparent; padding: 6px 22px 6px 9px; background: transparent; font-size: .83rem; font-weight: 500; }
@@ -272,26 +275,7 @@ body.pdf-viewer-open .pdf-viewer { display: flex; }
 
 
 /* True AMOLED: one neutral accent, no tinted panels or decorative lighting. */
-html[data-theme="dark"] {
-    color-scheme: dark;
-    --page: #000000;
-    --surface: #000000;
-    --surface-2: #141414;
-    --sidebar: #080808;
-    --ink: #f1f1f1;
-    --muted: #a3a3a3;
-    --line: #252525;
-    --control-line: #3e3e3e;
-    --accent: #e6e6e6;
-    --accent-soft: #171717;
-    --action: #f3f3f3;
-    --action-hover: #ffffff;
-    --action-ink: #111111;
-    --success: #b7d4bb;
-    --danger: #f2a5a5;
-    --focus: #d8d8d8;
-    --shadow: 0 10px 28px rgba(0, 0, 0, .35);
-}
+
 html[data-theme="dark"] .chat-sidebar { border-right: 1px solid #1f1f1f; }
 html[data-theme="dark"] .chat-header,
 html[data-theme="dark"] .chat-input-area,
