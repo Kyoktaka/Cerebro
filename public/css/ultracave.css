@@ -260,3 +260,12 @@ body.pdf-viewer-open .pdf-viewer { display: flex; }
   .studio-nav .theme-toggle { min-width: 36px; }
   .studio-nav .auth-buttons .btn-register { display: none; }
 }
+
+
+.message.user .message-content p { margin-bottom: 0; }
+.message.user .message-content p + p { margin-top: 10px; }
+.message.bot .message-content blockquote { margin: 8px 0; padding-left: 14px; border-left: 3px solid var(--line); color: var(--muted); }
+@media (max-width: 1180px) {
+    .pdf-viewer { position: fixed; inset: 0; z-index: 550; width: 100%; min-width: 0; height: 100dvh; }
+    .pdf-viewer-toolbar { padding-top: max(8px, env(safe-area-inset-top)); }
+}
