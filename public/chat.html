@@ -4,50 +4,66 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
-    <title>Cerebro | Workspace</title>
+    <title>Cerebro | Chat</title>
     <script src="js/theme.js"></script>
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/chat.css">
+    <link rel="stylesheet" href="css/ultracave.css">
 </head>
 <body class="chat-page">
     <a class="skip-link" href="#chatMessages">Skip to conversation</a>
     <div class="chat-layout">
-        <aside class="chat-sidebar" id="chatSidebar" aria-label="Conversations">
+        <aside class="chat-sidebar" id="chatSidebar" aria-label="Cerebro navigation">
             <div class="sidebar-header">
                 <div class="logo"><span class="logo-mark"><i class="fas fa-brain" aria-hidden="true"></i></span><span>Cerebro</span></div>
-                <button type="button" class="close-sidebar" id="closeSidebarBtn" aria-label="Close conversations"><i class="fas fa-xmark" aria-hidden="true"></i></button>
+                <button type="button" class="close-sidebar" id="closeSidebarBtn" aria-label="Collapse sidebar" title="Collapse sidebar"><i class="fas fa-panel-left" aria-hidden="true"></i></button>
             </div>
             <div class="sidebar-actions">
-                <button type="button" class="new-chat-btn" id="newChatBtn"><i class="fas fa-plus" aria-hidden="true"></i><span>New conversation</span></button>
+                <button type="button" class="new-chat-btn" id="newChatBtn"><i class="fas fa-plus" aria-hidden="true"></i><span>New chat</span></button>
             </div>
+            <nav class="sidebar-primary-nav" aria-label="Workspace">
+                <button type="button" id="sidebarChatsBtn"><i class="far fa-comment-dots" aria-hidden="true"></i><span>Chats</span></button>
+                <button type="button" id="sidebarDocumentsBtn"><i class="far fa-file-pdf" aria-hidden="true"></i><span>Documents</span></button>
+                <button type="button" id="sidebarStudyBtn"><i class="fas fa-graduation-cap" aria-hidden="true"></i><span>Study tools</span></button>
+            </nav>
+            <label class="history-search" for="conversationSearch">
+                <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                <input type="search" id="conversationSearch" placeholder="Search chats" aria-label="Search conversation history" autocomplete="off">
+            </label>
             <div class="conversations-section" aria-label="Saved conversations">
                 <h2>Today</h2><div class="conversation-list" id="todayList"></div>
                 <h2>Yesterday</h2><div class="conversation-list" id="yesterdayList"></div>
                 <h2>Last 7 days</h2><div class="conversation-list" id="weekList"></div>
                 <h2>Last 30 days</h2><div class="conversation-list" id="monthList"></div>
                 <h2>Older</h2><div class="conversation-list" id="olderList"></div>
+                <p id="historyEmpty" class="history-empty" hidden>No matching chats.</p>
             </div>
             <div class="sidebar-footer">
-                <div class="user-info" id="userInfo"><i class="fas fa-user-circle" aria-hidden="true"></i><span id="userName">Loading...</span></div>
-                <button type="button" class="logout-btn" id="logoutBtn">Sign out</button>
-                <button type="button" class="delete-account-btn" id="deleteAccountBtn">Delete account</button>
+                <details class="account-menu">
+                    <summary>
+                        <span class="user-info" id="userInfo"><i class="far fa-circle-user" aria-hidden="true"></i><span id="userName">Account</span></span>
+                    </summary>
+                    <div class="account-actions">
+                        <button class="theme-toggle" type="button" data-theme-toggle><i class="fas fa-moon" aria-hidden="true"></i><span data-theme-label>Dark mode</span></button>
+                        <button type="button" class="logout-btn" id="logoutBtn"><i class="fas fa-arrow-right-from-bracket" aria-hidden="true"></i> Sign out</button>
+                        <button type="button" class="delete-account-btn" id="deleteAccountBtn">Delete account</button>
+                    </div>
+                </details>
             </div>
         </aside>
-
         <main class="chat-main" id="main">
             <header class="chat-header">
-                <button type="button" class="menu-toggle" id="menuToggle" aria-label="Open conversations" aria-controls="chatSidebar" aria-expanded="false"><i class="fas fa-bars" aria-hidden="true"></i></button>
-                <div class="chat-heading"><p>Conversation</p><h1 class="chat-title" id="chatTitle">New conversation</h1></div>
+                <button type="button" class="menu-toggle" id="menuToggle" aria-label="Open navigation" aria-controls="chatSidebar" aria-expanded="false" title="Toggle sidebar"><i class="fas fa-panel-left" aria-hidden="true"></i></button>
+                <div class="chat-heading"><h1 class="chat-title" id="chatTitle">New chat</h1></div>
                 <div id="pdfModeBadge" class="pdf-mode-badge" style="display: none;"><i class="fas fa-file-pdf" aria-hidden="true"></i><span>PDF study</span></div>
                 <div class="chat-tools">
-                    <div class="model-control"><label for="ollamaModel">Model</label><select id="ollamaModel" disabled><option>Checking Ollama...</option></select></div>
-                    <button class="theme-toggle" type="button" data-theme-toggle><i class="fas fa-moon" aria-hidden="true"></i><span data-theme-label>Dark mode</span></button>
+                    <div class="model-control"><label for="ollamaModel">Model</label><select id="ollamaModel" aria-label="Select local AI model" disabled><option>Checking Ollama...</option></select></div>
                 </div>
             </header>
             <div class="ollama-status" id="ollamaStatus" role="status" aria-live="polite" data-state="loading">
                 <span class="status-dot" aria-hidden="true"></span><span id="ollamaStatusText">Checking Ollama...</span>
-                <button type="button" id="retryOllamaBtn">Refresh models</button>
+                <button type="button" id="retryOllamaBtn">Refresh</button>
             </div>
             <div id="studyModeBar" class="study-mode-bar" style="display: none;">
                 <div class="study-mode-info">
@@ -57,33 +73,55 @@
                 </div>
                 <button type="button" class="exit-study-mode" id="exitStudyModeBtn">Clear PDFs</button>
             </div>
-            <div class="chat-messages" id="chatMessages" aria-label="Conversation messages" tabindex="-1">
+            <div class="chat-messages" id="chatMessages" aria-label="Conversation messages" tabindex="-1" aria-live="polite">
                 <div class="welcome-message">
-                    <p class="welcome-kicker">Your workspace</p>
-                    <h2>What are you studying today?</h2>
-                    <p>Add a PDF to ask questions or create study cards.</p>
+                    <h2>What would you like to study?</h2>
+                    <p>Ask a question, or add a PDF to study from your sources.</p>
+                    <div class="welcome-actions">
+                        <button type="button" data-welcome-upload><i class="fas fa-paperclip" aria-hidden="true"></i> Upload PDF</button>
+                        <button type="button" data-study-prompt="Create a multiple-choice quiz with four options per question.">Create quiz</button>
+                        <button type="button" data-study-prompt="Generate flashcards with clear front and back sides.">Flashcards</button>
+                        <button type="button" data-study-prompt="Summarize the focused PDF documents.">Summarize</button>
+                    </div>
                 </div>
             </div>
             <div class="chat-input-area">
-                <label class="chat-message-label" for="chatInput">Your question</label>
+                <div class="study-actions" id="studyActions">
+                    <button type="button" data-study-prompt="Create a multiple-choice quiz with four options per question."><i class="fas fa-list-check" aria-hidden="true"></i> Quiz</button>
+                    <button type="button" data-study-prompt="Generate flashcards with clear front and back sides."><i class="far fa-rectangle-list" aria-hidden="true"></i> Flashcards</button>
+                    <button type="button" data-study-prompt="Summarize the focused PDF documents."><i class="far fa-file-lines" aria-hidden="true"></i> Summarize</button>
+                    <button type="button" data-study-prompt="Explain the main concepts from the focused documents in simple language."><i class="far fa-lightbulb" aria-hidden="true"></i> Explain</button>
+                </div>
+                <label class="chat-message-label" for="chatInput">Ask Cerebro</label>
                 <div class="composer-row">
-                    <button type="button" class="upload-btn" id="uploadBtn" aria-label="Add PDF" disabled><i class="fas fa-paperclip" aria-hidden="true"></i><span>Add PDF</span></button>
+                    <button type="button" class="upload-btn" id="uploadBtn" aria-label="Attach PDF" title="Attach PDF" disabled><i class="fas fa-plus" aria-hidden="true"></i><span>Add PDF</span></button>
                     <div class="chat-input-wrapper">
-                        <textarea class="chat-input" id="chatInput" placeholder="Ask a question..." rows="1"></textarea>
+                        <textarea class="chat-input" id="chatInput" placeholder="Ask anything..." rows="1" aria-label="Message"></textarea>
                         <button type="button" class="send-btn" id="sendBtn" aria-label="Send message" disabled><i class="fas fa-arrow-up" aria-hidden="true"></i></button>
                     </div>
                 </div>
+                <p class="composer-hint">Local models via Ollama. Check important answers against your sources.</p>
                 <input type="file" id="fileInput" accept=".pdf,application/pdf" multiple hidden>
             </div>
         </main>
+        <section class="pdf-viewer" id="pdfViewer" aria-label="PDF document viewer" aria-hidden="true">
+            <div class="pdf-viewer-toolbar">
+                <strong id="pdfViewerTitle">Source PDF</strong>
+                <button type="button" id="pdfPrevPage" title="Previous page" aria-label="Previous page"><i class="fas fa-chevron-left" aria-hidden="true"></i></button>
+                <span id="pdfViewerPage" aria-live="polite">1</span>
+                <button type="button" id="pdfNextPage" title="Next page" aria-label="Next page"><i class="fas fa-chevron-right" aria-hidden="true"></i></button>
+                <button type="button" id="pdfViewerClose" title="Close document" aria-label="Close PDF viewer"><i class="fas fa-xmark" aria-hidden="true"></i></button>
+            </div>
+            <iframe id="pdfViewerFrame" title="PDF source document" loading="lazy"></iframe>
+            <p class="pdf-viewer-hint">Use your browser's PDF toolbar for search and zoom.</p>
+        </section>
     </div>
-
     <div id="editModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editModalTitle" style="display: none;">
         <div class="modal-content">
-            <h2 id="editModalTitle">Rename conversation</h2>
-            <label for="editTitleInput">Conversation name</label>
+            <h2 id="editModalTitle">Rename chat</h2>
+            <label for="editTitleInput">Chat name</label>
             <input type="text" id="editTitleInput" autocomplete="off">
-            <div class="modal-buttons"><button type="button" id="cancelEditBtn">Cancel</button><button type="button" id="saveEditBtn">Save name</button></div>
+            <div class="modal-buttons"><button type="button" id="cancelEditBtn">Cancel</button><button type="button" id="saveEditBtn">Save</button></div>
         </div>
     </div>
     <script src="js/chat.js"></script>
