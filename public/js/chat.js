@@ -95,9 +95,9 @@ async function loadOllamaModels() {
         syncOllamaControls();
 
         if (embeddingAvailable) {
-            setOllamaStatus('Ollama connected. Chat and PDF study are ready.', 'ready');
+            setOllamaStatus('Ollama connected. PDF study is ready.', 'ready');
         } else {
-            setOllamaStatus(`Chat is ready. For PDF study, run ollama pull ${data.embeddingModel}, then refresh.`, 'error');
+            setOllamaStatus(`For PDF study, run ollama pull ${data.embeddingModel}, then refresh.`, 'error');
         }
     } catch (error) {
         ollamaModel.replaceChildren(new Option('No model available', ''));
@@ -457,7 +457,7 @@ async function deleteSelectedPDFs(namesToDelete) {
 
     if (currentPDFCount === 0) {
         disablePDFMode();
-        addMessageToUI(`Removed ${label}. General chat is ready.`, 'notice');
+        addMessageToUI(`Removed ${label}. Add a PDF to continue.`, 'notice');
     } else {
         currentPDFName = activePDFNames[0] || currentPDFNames[0];
         enablePDFMode(currentPDFName, currentPDFCount, currentPDFNames, activePDFNames);
@@ -482,7 +482,7 @@ if (exitStudyModeBtn) {
         }
         if (currentConversationId !== targetConversationId) return;
         disablePDFMode();
-        addMessageToUI('PDFs cleared. General chat is ready.', 'notice');
+        addMessageToUI('PDFs cleared. Add a PDF to continue.', 'notice');
     });
 }
 
@@ -812,7 +812,7 @@ function renderCurrentConversation() {
             <div class="welcome-message">
                 <p class="welcome-kicker">Your workspace</p>
                 <h2>What are you studying today?</h2>
-                <p>Choose a local model, ask a question, or add PDFs to study from your own sources.</p>
+                <p>Add a PDF to ask questions or create study cards.</p>
             </div>
         `;
         return;
@@ -834,7 +834,7 @@ function addMessageToUI(text, role, attachments = null, isProcessing = false) {
     if (isProcessing) {
         content = `<div class="message-content status-content">${formatMessage(text)}</div>`;
     } else {
-        content = `<div class="message-content">${formatMessage(text)}`;
+        content = `<div class="message-content">${formatMessage(text, role === 'assistant' || role === 'bot')}`;
         if (attachments && attachments.length > 0) {
             for (const file of attachments) {
                 content += `<div class="message-attachment"><i class="fas fa-file-pdf"></i> ${escapeHtml(file.name)}</div>`;
@@ -895,7 +895,7 @@ async function sendMessage() {
             if (currentConversationId !== targetConversationId) return;
             removeTypingIndicator();
             if (!answerElement) answerElement = addMessageToUI('', 'bot').querySelector('.message-content');
-            answerElement.innerHTML = formatMessage(answer);
+            answerElement.innerHTML = formatMessage(answer, true);
             scrollToBottom();
         }
 
@@ -1017,9 +1017,15 @@ if (fileInput) {
 }
 
 
-function formatMessage(text) {
+function formatMessage(text, allowStudy = false) {
     if (!text) return '';
-    return escapeHtml(text).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+    const render = value => escapeHtml(value).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+    const marker = '\n\nAnswer key:\n';
+    const markerIndex = allowStudy ? text.indexOf(marker) : -1;
+    if (markerIndex !== -1 && /^(?:Flashcards|Multiple choice|Complete the definitions|Short answer|Fill in the blanks)/.test(text)) {
+        return `${render(text.slice(0, markerIndex))}<details class="study-answers"><summary>Show answers</summary>${render(text.slice(markerIndex + marker.length))}</details>`;
+    }
+    return render(text);
 }
 
 function showTypingIndicator() {

@@ -132,6 +132,10 @@ body.sidebar-collapsed .menu-toggle { display: inline-grid; }
 .message { display: flex; width: min(100%, 820px); margin: 0 auto 12px; }
 .message.user { justify-content: flex-end; }
 .message-content { max-width: min(88%, 660px); padding: 13px 17px; border: 1px solid var(--line); border-radius: 12px 12px 12px 3px; background: var(--surface); color: var(--ink); line-height: 1.6; overflow-wrap: anywhere; }
+.study-answers { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.study-answers summary { min-height: 44px; cursor: pointer; color: var(--accent); font-weight: 700; }
+.study-answers summary:hover { text-decoration: underline; }
+.study-answers summary:active { text-decoration-thickness: 2px; }
 .message.user .message-content { max-width: min(80%, 610px); border-color: var(--action); border-radius: 12px 12px 3px 12px; background: var(--action); color: var(--action-ink); }
 .message.typing .message-content { color: var(--muted); font-style: italic; }
 .message.status-message .message-content, .message.notice .message-content { max-width: 100%; padding: 9px 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); font-size: 0.84rem; }

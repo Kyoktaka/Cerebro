@@ -52,23 +52,61 @@ function retrieveChunks(index, activeNames, queryVector) {
     return selected;
 }
 
+function normalizeTerm(word) {
+    if (word.length > 4 && word.endsWith('ies')) return word.slice(0, -3) + 'y';
+    if (word.length > 3 && word.endsWith('s') && !word.endsWith('ss')) return word.slice(0, -1);
+    return word;
+}
+
 function questionHasEvidence(question, chunks) {
     if (/^\s*who\s+is\s+(?:he|she|the person)\s*[?.!]*\s*$/i.test(question)) return true;
-    const words = question.toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
-    const stop = new Set(['what', 'whats', 'that', 'this', 'about', 'tell', 'please', 'could', 'would', 'should', 'does', 'have', 'from', 'with', 'your', 'their', 'which', 'where', 'when', 'into', 'explain', 'describe', 'summarize', 'summary', 'document', 'documents', 'pdf', 'file', 'files', 'content', 'uploaded', 'question', 'based', 'according', 'can', 'you', 'the', 'and', 'for', 'are', 'all', 'how', 'who', 'why', 'was', 'again']);
-    const terms = words.filter(word => word.length > 2 && !stop.has(word));
-    if (!terms.length) return /\b(summar(?:y|ize|ise)|about|overview)\b/i.test(question);
-    const tokens = new Set(chunks.flatMap(chunk => chunk.text.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []));
-    return terms.every(term => tokens.has(term));
+    const equation = question.match(/\b\d+(?:\.\d+)?\s*[+\-*/^=−]\s*\d+(?:\.\d+)?\b/u);
+    const compact = value => value.replace(/\s+/g, '').replace(/−/g, '-');
+    if (equation && !chunks.some(chunk => compact(chunk.text).includes(compact(equation[0])))) return false;
+    const words = (equation ? question.replace(equation[0], ' ') : question).toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+    const stop = new Set(['what', 'whats', 'that', 'this', 'about', 'tell', 'please', 'could', 'would', 'should', 'does', 'have', 'from', 'with', 'your', 'their', 'which', 'where', 'when', 'into', 'explain', 'describe', 'summarize', 'summary', 'document', 'documents', 'pdf', 'file', 'files', 'content', 'uploaded', 'question', 'based', 'according', 'can', 'you', 'the', 'and', 'for', 'are', 'all', 'how', 'who', 'why', 'was', 'again', 'is', 'to', 'me', 'of', 'as', 'it', 'in', 'on', 'do', 'at', 'by', 'or', 'be', 'he', 'we', 'if', 'am', 'an']);
+    const terms = words.filter(word => word.length > 1 && !stop.has(word)).map(normalizeTerm);
+    if (!terms.length) return Boolean(equation) || /\b(summar(?:y|ize|ise)|about|overview)\b/i.test(question);
+    return chunks.some(chunk => chunk.text.split(/(?<=[.!?])\s+/u).some(sentence => {
+        const tokens = new Set((sentence.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).map(normalizeTerm));
+        return (!equation || compact(sentence).includes(compact(equation[0]))) && terms.every(term => tokens.has(term));
+    }));
+}
+
+function resolveDocumentScope(question, uploadedNames, activeNames) {
+    const lower = question.toLowerCase();
+    const chars = question.split('');
+    const matched = [];
+    for (const name of [...uploadedNames].sort((a, b) => b.length - a.length)) {
+        const needle = name.toLowerCase();
+        let pos = lower.indexOf(needle);
+        while (pos !== -1) {
+            const before = lower[pos - 1] || '';
+            const after = lower[pos + needle.length] || '';
+            const suffix = /[\p{L}\p{N}_-]/u.test(after) || (after === '.' && /[\p{L}\p{N}_]/u.test(lower[pos + needle.length + 1] || ''));
+            if (!/[\p{L}\p{N}_.-]/u.test(before) && !suffix && chars.slice(pos, pos + name.length).some(char => char !== ' ')) {
+                matched.push(name);
+                for (let i = pos; i < pos + name.length; i++) chars[i] = ' ';
+            }
+            pos = lower.indexOf(needle, pos + needle.length);
+        }
+    }
+    const query = chars.join('');
+    if (/\.pdf\b/i.test(query)) return { error: 'The requested PDF is not available. Select an uploaded PDF and try again.' };
+    const names = [...new Set(matched)];
+    return { names: names.length ? names : activeNames, query: query.trim() || 'summarize' };
 }
 
 function quizRequest(question) {
-    if (!/\b(?:quiz|quizzes|reviewer|flashcards?)\b/i.test(question)) return null;
-    const topic = question.toLowerCase().replace(/\b(?:create|make|generate|give|build|prepare|write|please|could|would|can|you|me|a|an|the|some|quiz|quizzes|reviewer|flashcards|flashcard|questions|question|about|on|from|using|based|of|for|this|these|my|pdf|pdfs|document|documents|file|files|uploaded)\b/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
-    return { topic };
+    if (!/\b(?:quiz|quizzes|reviewer|flashcards?|multiple[ -]choice|mcqs?|practice questions|short[ -]answer questions|definition questions|fill[ -]in[ -]the[ -]blank)\b/i.test(question)) return null;
+    const kind = /\b(?:multiple[ -]choice|mcqs?)\b/i.test(question) ? 'multiple-choice' : /\bflashcards?\b/i.test(question) ? 'flashcards' : /\b(?:term[ -]definition|definitions?)\b/i.test(question) ? 'definition' : /\bshort[ -]answer\b/i.test(question) ? 'short-answer' : 'fill';
+    const countMatch = question.match(/\b(\d{1,2})\s+(?:(?:multiple[ -]choice|short[ -]answer|practice|definition)\s+)?(?:quiz(?:zes)?|questions?|flashcards?|mcqs?)\b/i);
+    const count = countMatch ? Math.max(1, Math.min(20, Number(countMatch[1]))) : 5;
+    const topic = question.toLowerCase().replace(/\b\d{1,2}\s+(?=(?:(?:multiple[ -]choice|short[ -]answer|practice|definition)\s+)?(?:quiz(?:zes)?|questions?|flashcards?|mcqs?)\b)/g, '').replace(/\b(?:create|make|generate|give|build|prepare|write|please|could|would|can|you|me|a|an|the|some|and|both|quiz|quizzes|reviewer|flashcards|flashcard|questions|question|about|on|from|using|based|of|for|this|these|my|pdf|pdfs|document|documents|file|files|uploaded|multiple|choice|mcq|mcqs|short|answer|fill|in|blank|practice|term|definition|definitions)\b/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    return { topic, count, kind };
 }
 
-function makeSourceQuiz(chunks, limit = 5) {
+function makeSourceQuiz(chunks, limit = 5, kind = 'fill', topic = '') {
     const seen = new Set();
     const questions = [];
     for (const chunk of chunks) {
@@ -76,15 +114,41 @@ function makeSourceQuiz(chunks, limit = 5) {
         for (const raw of sentences) {
             const sentence = raw.replace(/^\s*[•\-*]\s*/, '').trim();
             if (sentence.length < 25 || sentence.length > 240 || !/[.!?]$/.test(sentence)) continue;
+            if (topic && !questionHasEvidence(topic, [{ text: sentence }])) continue;
             const words = [...sentence.matchAll(/\b[A-Za-z]{5,}\b/g)];
             if (words.length < 3 || seen.has(sentence.toLowerCase())) continue;
-            const word = words.at(-1);
+            let word = words.at(-1);
+            let answer = word[0];
+            let prompt = sentence.slice(0, word.index) + '_____' + sentence.slice(word.index + word[0].length);
+            let choices;
+            const definition = sentence.match(/^(.{2,80}?)\s+(is defined as|refers to|is|are|means)\s+(.{5,150})[.!?]$/i);
+            if (kind === 'definition') {
+                if (!definition) continue;
+                prompt = `${definition[1]} ${definition[2]} _____`;
+                answer = definition[3];
+            } else if ((kind === 'flashcards' || kind === 'short-answer') && definition) {
+                prompt = `What does the document state about ${definition[1]}?`;
+                answer = sentence;
+            }
+            if (kind === 'multiple-choice') {
+                const list = sentence.match(/\b[A-Za-z]{3,}(?:,\s*[A-Za-z]{3,}){2,},?\s+(?:and|or)\s+[A-Za-z]{3,}\b/i);
+                if (!list) continue;
+                const listWords = (list[0].match(/[A-Za-z]{3,}/g) || []).filter(item => !/^(?:and|or)$/i.test(item));
+                const alternatives = [...new Map(listWords.map(item => [item.toLowerCase(), item])).values()];
+                if (alternatives.length < 4 || alternatives.length !== listWords.length) continue;
+                answer = alternatives.at(-1);
+                const answerIndex = list.index + list[0].lastIndexOf(answer);
+                prompt = sentence.slice(0, answerIndex) + '_____' + sentence.slice(answerIndex + answer.length);
+                choices = [...alternatives.slice(0, 3), answer];
+                const shift = questions.length % choices.length;
+                choices = [...choices.slice(shift), ...choices.slice(0, shift)];
+            }
             seen.add(sentence.toLowerCase());
-            questions.push({ prompt: sentence.slice(0, word.index) + '_____' + sentence.slice(word.index + word[0].length), answer: word[0], source: chunk.pdfName });
+            questions.push({ prompt, answer, source: chunk.pdfName, evidence: sentence, choices });
             if (questions.length === limit) return questions;
         }
     }
     return questions;
 }
 
-module.exports = { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence, quizRequest, makeSourceQuiz };
+module.exports = { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence, resolveDocumentScope, quizRequest, makeSourceQuiz };

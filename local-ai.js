@@ -118,11 +118,11 @@ async function embedTexts(texts, model = OLLAMA_EMBED_MODEL) {
     return all;
 }
 
-async function openChat(model, messages, stream, signal) {
+async function openChat(model, messages, stream, signal, format) {
     return request('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, messages, stream, options: { num_ctx: OLLAMA_NUM_CTX } }),
+        body: JSON.stringify({ model, messages, stream, ...(format ? { format } : {}), options: { num_ctx: OLLAMA_NUM_CTX, ...(format ? { temperature: 0 } : {}) } }),
         signal
     });
 }

@@ -16,10 +16,10 @@ const {
     requireCapability,
     installedModel,
     embedTexts,
-    openChat,
-    readChatStream
+    openChat
 } = require('./local-ai');
-const { chunkText, retrieveChunks, questionHasEvidence, quizRequest, makeSourceQuiz } = require('./rag');
+const { chunkText, retrieveChunks, questionHasEvidence, resolveDocumentScope, quizRequest, makeSourceQuiz } = require('./rag');
+const { EVIDENCE_SCHEMA, groundingMessages, validateEvidence } = require('./grounding');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -675,6 +675,17 @@ function saveChatMessage(session, conversationId, message, answer) {
     saveUser(user);
 }
 
+function sendStudyAnswer(res, session, conversationId, message, answer, stream, mode = 'study') {
+    saveChatMessage(session, conversationId, message, answer);
+    if (stream === true) {
+        res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.write(`${JSON.stringify({ type: 'delta', content: answer })}\n`);
+        return res.end(`${JSON.stringify({ type: 'done', answer, mode })}\n`);
+    }
+    return res.json({ answer, mode });
+}
+
 app.post('/api/chat', async (req, res) => {
     const controller = new AbortController();
     res.on('close', () => controller.abort());
@@ -701,87 +712,47 @@ app.post('/api/chat', async (req, res) => {
             activePdfNames: [...(session.activePdfNames || session.pdfNames)],
             pdfIndex: session.pdfIndex
         };
+        const hasPDF = pdfContext.pdfNames.length > 0;
+        if (!hasPDF) {
+            return sendStudyAnswer(res, session, conversationId, message, 'Upload a PDF to ask questions or create study materials.', stream, 'normal');
+        }
         const models = await listModels();
         const selectedModel = installedModel(models, req.body.model || OLLAMA_MODEL);
         await requireCapability(selectedModel, 'completion');
-        const hasPDF = pdfContext.pdfNames.length > 0;
-        const mode = hasPDF ? 'study' : 'normal';
-        let messages;
 
         if (hasPDF) {
+            const scope = resolveDocumentScope(message, pdfContext.pdfNames, pdfContext.activePdfNames);
+            if (scope.error) return sendStudyAnswer(res, session, conversationId, message, scope.error, stream);
             const embeddingModel = installedModel(models, OLLAMA_EMBED_MODEL);
             await requireCapability(embeddingModel, 'embedding');
             const index = await ensurePdfIndex(pdfContext, conversationId, models);
-            const [questionVector] = await embedTexts([message], OLLAMA_EMBED_MODEL);
-            const chunks = retrieveChunks(index, pdfContext.activePdfNames, questionVector);
-            if (!chunks.length) {
+            const selectedChunks = index.chunks.filter(chunk => scope.names.includes(chunk.pdfName));
+            if (!selectedChunks.length) {
                 throw new OllamaError('No readable text found in the focused PDFs.', 422);
             }
-            const quiz = quizRequest(message);
-            if (quiz && (!quiz.topic || questionHasEvidence(quiz.topic, chunks))) {
-                const questions = makeSourceQuiz(quiz.topic ? chunks.filter(chunk => questionHasEvidence(quiz.topic, [chunk])) : chunks);
+            const refusal = 'I cannot answer this question because the information is not present in your uploaded PDF document(s).';
+            const quiz = quizRequest(scope.query);
+            if (quiz) {
+                const studyChunks = quiz.topic ? selectedChunks.filter(chunk => questionHasEvidence(quiz.topic, [chunk])) : selectedChunks;
+                if (!studyChunks.length) return sendStudyAnswer(res, session, conversationId, message, refusal, stream);
+                const questions = makeSourceQuiz(studyChunks, quiz.count, quiz.kind, quiz.topic);
+                const label = quiz.kind === 'flashcards' ? 'Flashcards: recall each answer' : quiz.kind === 'multiple-choice' ? 'Multiple choice: choose the word missing from the exact passage' : quiz.kind === 'definition' ? 'Complete the definitions from your PDFs' : quiz.kind === 'short-answer' ? 'Short answer: recall or complete each passage' : 'Fill in the blanks using your PDFs';
                 const answer = questions.length
-                    ? `Fill in the blanks using your selected PDFs:\n\n${questions.map((item, i) => `${i + 1}. ${item.prompt} [${item.source}]`).join('\n\n')}\n\nAnswer key:\n${questions.map((item, i) => `${i + 1}. ${item.answer} [${item.source}]`).join('\n')}`
-                    : 'I could not find enough complete sentences to make a quiz from the selected PDFs. Try another text-based PDF.';
-                saveChatMessage(session, conversationId, message, answer);
-                if (stream === true) {
-                    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-                    res.write(`${JSON.stringify({ type: 'delta', content: answer })}\n`);
-                    return res.end(`${JSON.stringify({ type: 'done', answer, mode })}\n`);
-                }
-                return res.json({ answer, mode });
+                    ? `${label}:${questions.length < quiz.count ? ` (${questions.length} of ${quiz.count} requested; not enough suitable passages found.)` : ''}\n\n${questions.map((item, i) => `${i + 1}. ${item.prompt} [${item.source}]${item.choices ? `\n${item.choices.map((choice, j) => `${String.fromCharCode(65 + j)}. ${choice}`).join('\n')}` : ''}`).join('\n\n')}\n\nAnswer key:\n${questions.map((item, i) => `${i + 1}. ${item.answer} [${item.source}]\nEvidence: ${item.evidence}`).join('\n\n')}`
+                    : 'I could not find suitable passages for that study format in the requested PDFs. Try another format or a text-based PDF.';
+                return sendStudyAnswer(res, session, conversationId, message, answer, stream);
             }
-            if ((quiz && quiz.topic) || (!quiz && !questionHasEvidence(message, chunks))) {
-                const answer = 'I cannot answer that from the selected PDFs. Ask about their contents or choose another source.';
-                saveChatMessage(session, conversationId, message, answer);
-                if (stream === true) {
-                    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-                    res.write(`${JSON.stringify({ type: 'delta', content: answer })}\n`);
-                    return res.end(`${JSON.stringify({ type: 'done', answer, mode })}\n`);
-                }
-                return res.json({ answer, mode });
-            }
-            const answer = `Relevant passages from your selected PDFs:\n\n${chunks.map(chunk => `Source: ${chunk.pdfName}\n${chunk.text}`).join('\n\n')}`;
-            saveChatMessage(session, conversationId, message, answer);
-            if (stream === true) {
-                res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-                res.write(`${JSON.stringify({ type: 'delta', content: answer })}\n`);
-                return res.end(`${JSON.stringify({ type: 'done', answer, mode })}\n`);
-            }
-            return res.json({ answer, mode });
-        } else {
-            const history = (conversation?.messages || []).slice(-12)
-                .filter(item => ['user', 'assistant'].includes(item.role) && typeof item.content === 'string')
-                .map(item => ({ role: item.role, content: item.content.slice(0, 4000) }));
-            messages = [
-                { role: 'system', content: 'You are Cerebro, a helpful study assistant. Answer clearly and concisely in the user\'s language.' },
-                ...history,
-                { role: 'user', content: message }
-            ];
-        }
-
-        const ollamaResponse = await openChat(selectedModel, messages, stream === true, controller.signal);
-        let answer;
-        if (stream === true) {
-            res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-            res.setHeader('Cache-Control', 'no-cache');
-            res.setHeader('X-Accel-Buffering', 'no');
-            res.flushHeaders();
-            answer = await readChatStream(ollamaResponse, content => {
-                if (!res.destroyed) res.write(`${JSON.stringify({ type: 'delta', content })}\n`);
-            });
-        } else {
-            const result = await ollamaResponse.json();
+            const [questionVector] = await embedTexts([scope.query], OLLAMA_EMBED_MODEL);
+            const evidence = selectedChunks.filter(chunk => questionHasEvidence(scope.query, [chunk]));
+            if (!evidence.length) return sendStudyAnswer(res, session, conversationId, message, refusal, stream);
+            const chunks = retrieveChunks({ chunks: evidence }, scope.names, questionVector);
+            const response = await openChat(selectedModel, groundingMessages(scope.query, chunks), false, controller.signal, EVIDENCE_SCHEMA);
+            const result = await response.json();
             if (result.error) throw new OllamaError(`Ollama request failed: ${result.error}`, 502);
-            answer = result.message?.content;
-            if (!answer?.trim()) throw new OllamaError('Ollama returned an empty answer.', 502);
-        }
-
-        saveChatMessage(session, conversationId, message, answer);
-        if (stream === true) {
-            if (!res.destroyed) res.end(`${JSON.stringify({ type: 'done', answer, mode })}\n`);
-        } else {
-            res.json({ answer, mode });
+            const evidenceQuotes = validateEvidence(result.message?.content, chunks, scope.query);
+            if (!evidenceQuotes.length) return sendStudyAnswer(res, session, conversationId, message, refusal, stream);
+            const answer = `Passages from your PDFs (check whether they answer your question):\n\n${evidenceQuotes.map(item => `Source: ${item.source}\n${item.quote}`).join('\n\n')}`;
+            return sendStudyAnswer(res, session, conversationId, message, answer, stream);
         }
 
     } catch (error) {

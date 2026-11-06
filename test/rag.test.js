@@ -1,10 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence, quizRequest, makeSourceQuiz } = require('../rag');
+const { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence, resolveDocumentScope, quizRequest, makeSourceQuiz } = require('../rag');
 
 test('quiz uses exact source sentences and identifies requested topics', () => {
     const chunks = [{ pdfName: 'resume.pdf', text: 'James is a software developer building websites.\nHe creates database systems for clients.' }];
     assert.equal(quizRequest('create me a quiz').topic, '');
+    assert.equal(quizRequest('Create me 10 quiz questions.').count, 10);
+    assert.equal(quizRequest('Create me 10 quiz questions.').topic, '');
     assert.equal(quizRequest('make a quiz about science').topic, 'science');
     assert.equal(questionHasEvidence('who is the person?', chunks), true);
     const quiz = makeSourceQuiz(chunks);
@@ -12,11 +14,64 @@ test('quiz uses exact source sentences and identifies requested topics', () => {
     for (const item of quiz) assert.ok(chunks[0].text.includes(item.prompt.replace('_____', item.answer)));
 });
 
+test('scope follows explicit uploaded filenames and refuses missing files', () => {
+    const uploaded = ['DocA.pdf', 'DocB.pdf', 'My DocA.pdf'];
+    assert.deepEqual(resolveDocumentScope('quiz on DocA.pdf', uploaded, uploaded).names, ['DocA.pdf']);
+    assert.deepEqual(resolveDocumentScope('quiz on My DocA.pdf', uploaded, uploaded).names, ['My DocA.pdf']);
+    assert.deepEqual(resolveDocumentScope('quiz from docb.PDF', uploaded, uploaded).names, ['DocB.pdf']);
+    assert.deepEqual(resolveDocumentScope('quiz from DocB.pdf.', uploaded, uploaded).names, ['DocB.pdf']);
+    assert.match(resolveDocumentScope('quiz from DocB.pdf.backup', uploaded, uploaded).error, /not available/);
+    const both = resolveDocumentScope('quiz from DocA.pdf and DocB.pdf', uploaded, uploaded);
+    assert.deepEqual(both.names, ['DocA.pdf', 'DocB.pdf']);
+    assert.equal(quizRequest(both.query).topic, '');
+    assert.deepEqual(resolveDocumentScope('quiz from DocA.pdf', uploaded, ['DocB.pdf']).names, ['DocA.pdf']);
+    assert.match(resolveDocumentScope('quiz from unknown.pdf', uploaded, uploaded).error, /not available/);
+    assert.deepEqual(resolveDocumentScope('quiz me', uploaded, ['DocB.pdf']).names, ['DocB.pdf']);
+});
+
+test('quiz formats use document text for questions, choices, and evidence', () => {
+    const chunks = [{ pdfName: 'computer.pdf', text: 'A computer is an electronic device that processes data according to instructions.\nThe machine contains a processor, memory, storage, network, and display.' }];
+    for (const request of ['10 multiple choice questions', '10 flashcards', '10 short-answer questions', '10 definition questions']) {
+        const parsed = quizRequest(request);
+        assert.equal(parsed.count, 10);
+        assert.equal(parsed.topic, '');
+        const items = makeSourceQuiz(chunks, parsed.count, parsed.kind);
+        assert.ok(items.length);
+        for (const item of items) {
+            assert.ok(chunks[0].text.includes(item.evidence));
+            assert.ok(item.evidence.includes(item.answer));
+            if (item.choices) {
+                assert.equal(item.choices.length, 4);
+                assert.equal(new Set(item.choices.map(value => value.toLowerCase())).size, 4);
+                assert.ok(item.choices.every(choice => item.evidence.includes(choice)));
+            }
+        }
+    }
+    const many = [{ pdfName: 'large.pdf', text: Array.from({ length: 12 }, (_, i) => `Example number ${i} explains a different documented concept.`).join('\n') }];
+    assert.equal(makeSourceQuiz(many, 10).length, 10);
+    const mixed = [{ pdfName: 'biology.pdf', text: 'A plant uses sunlight and water to grow in the garden. A computer processes instructions and stores information.' }];
+    const focused = makeSourceQuiz(mixed, 10, 'fill', 'plants');
+    assert.equal(focused.length, 1);
+    assert.match(focused[0].evidence, /plant/);
+    assert.doesNotMatch(focused[0].evidence, /computer/);
+    assert.equal(makeSourceQuiz([{ pdfName: 'computer.pdf', text: 'A computer, which is useful, processes data according to instructions.' }], 5, 'multiple-choice').length, 0);
+});
+
 test('unrelated question is rejected while document summary and matching question are allowed', () => {
     const chunks = [{ text: 'James is a software developer with experience building websites.' }];
     assert.equal(questionHasEvidence('can you tell me what is science?', chunks), false);
     assert.equal(questionHasEvidence('what is this PDF about?', chunks), true);
     assert.equal(questionHasEvidence('what experience does James have?', chunks), true);
+    const computer = [{ text: 'A computer is an electronic device that processes data according to instructions.' }];
+    assert.equal(questionHasEvidence('Tell me about computers?', computer), true);
+    assert.equal(questionHasEvidence('Who invented the computer?', computer), false);
+    assert.equal(questionHasEvidence('Tell me about math.', computer), false);
+    assert.equal(questionHasEvidence('What is AI?', [{ text: 'AI is discussed as a tool for automation.' }]), true);
+    assert.equal(questionHasEvidence('What is 2 + 2?', [{ text: 'The equation 2+2 = 4 appears here.' }]), true);
+    assert.equal(questionHasEvidence('What is 2 + 2?', computer), false);
+    assert.equal(questionHasEvidence('What is 2+2 in physics?', [{ text: 'The equation 2+2 = 4 appears here. Physics is a science.' }]), false);
+    assert.equal(questionHasEvidence('Who invented the computer?', [{ text: 'The computer processes data.' }, { text: 'A device was invented later.' }]), false);
+    assert.equal(questionHasEvidence('Who invented the computer?', [{ text: 'The computer processes data. A device was invented later.' }]), false);
 });
 
 test('long documents are chunked without losing their ends', () => {
