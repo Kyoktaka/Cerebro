@@ -1,4 +1,5 @@
 const { openChat, OllamaError } = require('./local-ai');
+const { isDocumentOverview } = require('./overview');
 
 const str = { type: 'string' };
 const obj = properties => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false });
@@ -72,10 +73,20 @@ async function tutorAnswer(call, request, chunks, history, requiredSources = [])
             'For summaries organize main concepts, definitions, processes and takeaways present in the sampled passages. Do not claim full coverage. For a comparison cite every requested document. If any requested fact is missing return unsupported. ' +
             'Provide a concise explanation, plus exact supporting quotations identified by passage id.',
         { request, history, sources, feedback }, answerSchema);
-        if (draft?.support === 'ambiguous') return { text: 'Which term or passage would you like me to explain?' };
-        if (!['direct', 'deduced'].includes(draft?.support) || typeof draft.answer !== 'string' || !draft.answer.trim()) return null;
+        if (draft?.support === 'ambiguous') {
+            if (!isDocumentOverview(request)) return { text: 'Which term or passage would you like me to explain?' };
+            feedback = 'The user asked for a broad overview of selected documents. Summarize supported ideas from the supplied passages without asking them to specify a topic.';
+            continue;
+        }
+        if (!['direct', 'deduced'].includes(draft?.support) || typeof draft.answer !== 'string' || !draft.answer.trim()) {
+            feedback = 'Provide a supported answer grounded in the supplied passages, with exact quoted evidence. If there is no relevant evidence, report unsupported.';
+            continue;
+        }
         const evidence = anchors(draft.evidence, chunks);
-        if (!evidence || requiredSources.some(source => !evidence.some(item => item.source === source))) return null;
+        if (!evidence || requiredSources.some(source => !evidence.some(item => item.source === source))) {
+            feedback = 'Every cited quote must match its source passage exactly. Cover all requested documents, with at least one verifiable quote from each.';
+            continue;
+        }
         const verdict = await review(call, { question: request, history }, draft, sources,
             'Check the answer itself against its cited quotes in context. Verify that every claim follows and all parts of the question are answered.');
         if (verdict.approved) {
@@ -83,8 +94,7 @@ async function tutorAnswer(call, request, chunks, history, requiredSources = [])
             return { text: prefix + draft.answer.trim() + '\n\nReviewed sources\n' +
                 evidence.map(item => location(item) + '\n“' + item.quote + '”').join('\n\n'), topic: request };
         }
-        if (!verdict.revise) return null;
-        feedback = verdict.revise;
+        feedback = verdict.revise || 'Revise the answer to state only facts supported by the quoted source evidence.';
     }
     return null;
 }

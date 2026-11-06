@@ -118,6 +118,27 @@ test('local model discovery, grounded PDF responses, and persisted index', async
         const upload = await uploadResponse.json();
         assert.equal(uploadResponse.status, 200, `${JSON.stringify(upload)}\n${app.getOutput()}`);
         assert.deepEqual(upload.pdfNames, ['alpha.pdf', 'beta.pdf']);
+        assert.deepEqual(upload.extractedPages.map(item => item.pages), [1, 1]);
+        assert.ok(upload.extractedPages.every(item => item.readablePages === 1));
+
+        // Broad questions should work across all focused PDFs without
+        // requiring literal words like "main concepts" in their passages.
+        const overview = await streamChat(base, {
+            message: 'Explain the main concepts from the focused documents in simple language.',
+            sessionId, conversationId, model: 'llama3.2'
+        });
+        assert.match(overview.at(-1).answer, /Alpha document explains cells/);
+        assert.match(overview.at(-1).answer, /Beta document explains plants/);
+        assert.doesNotMatch(overview.at(-1).answer, /cannot answer that question/i);
+        setChatReply('unverified model claim');
+        const safelyGrounded = await streamChat(base, {
+            message: 'Summarize the focused PDF documents.', sessionId, conversationId, model: 'llama3.2'
+        });
+        assert.doesNotMatch(safelyGrounded.at(-1).answer, /unverified model claim/);
+        assert.match(safelyGrounded.at(-1).answer, /Alpha document explains cells/);
+        assert.match(safelyGrounded.at(-1).answer, /Beta document explains plants/);
+        setChatReply(null);
+
 
         const invalid = await post(base, '/api/chat', { message: 'Hello', sessionId, conversationId, model: 'missing-model' });
         assert.equal(invalid.status, 422);
@@ -160,6 +181,12 @@ test('local model discovery, grounded PDF responses, and persisted index', async
         assert.equal((await fetchSource()).status, 404);
         assert.deepEqual(focus.body.pdfNames, ['alpha.pdf', 'beta.pdf']);
         assert.deepEqual(focus.body.activePdfNames, ['beta.pdf']);
+        const focusedSummary = await streamChat(base, {
+            message: 'Summarize the focused PDF documents.', sessionId, conversationId, model: 'llama3.2'
+        });
+        assert.match(focusedSummary.at(-1).answer, /Beta document explains plants/);
+        assert.doesNotMatch(focusedSummary.at(-1).answer, /Alpha document explains cells/);
+
         const unfocused = await streamChat(base, { message: 'quiz from alpha.pdf', sessionId, conversationId, model: 'llama3.2' });
         assert.match(unfocused.at(-1).answer, /Select the named PDF/);
         assert.doesNotMatch(unfocused.at(-1).answer, /beta\.pdf/);

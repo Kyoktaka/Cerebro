@@ -19,6 +19,7 @@ const {
 } = require('./local-ai');
 const { resolveDocumentScope } = require('./rag');
 const { queryVariants, choosePassages } = require('./retrieval');
+const { isDocumentOverview, selectedOverviewChunks, sourceOverview } = require('./overview');
 const { modelCaller, tutorAnswer, review, passages, location } = require('./tutor');
 const { studyRequest, buildStudy, studySet, advanceQuiz, questionAt, shortfall } = require('./study');
 const { documentAnswer } = require('./document-answers');
@@ -665,7 +666,8 @@ app.post('/api/upload', (req, res, next) => {
             charCount: totalChars,
             pdfCount: fileNames.length,
             maxPDFs: MAX_PDFS_PER_CONVERSATION,
-            truncated: truncated
+            truncated: truncated,
+            extractedPages: newDocuments.map(doc => ({ name: doc.name, pages: doc.pageCount, readablePages: doc.readablePages }))
         });
 
     } catch (error) {
@@ -808,15 +810,19 @@ app.post('/api/chat', async (req, res) => {
                     return respond(direct + '\n\nReviewed sources\n' + [...new Set(context.map(c => location({ source: c.pdfName, page: c.page, digest: c.digest })))].join('\n'), { topic: scope.query });
                 }
             }
-            const summary = /\b(summar(?:ize|ise|y)|overview)\b/i.test(scope.query);
-            const context = summary && !comparison ? [...new Set(docs.flatMap(doc => {
-                const parts = selected.filter(c => c.pdfName === doc.name);
-                const count = Math.min(parts.length, Math.max(1, Math.floor(6 / docs.length)));
-                return Array.from({ length: count }, (_, i) => parts[count === 1 ? 0 : Math.round(i * (parts.length-1)/(count-1))]);
-            }))] : ranked;
+            const overview = isDocumentOverview(scope.query);
+            // A global explanation is not a keyword search. Give the model
+            // representative pages from every focused PDF, in document order.
+            const overviewPages = overview && !comparison
+                ? selectedOverviewChunks(selected, scope.names, Math.max(1, Math.floor(10 / scope.names.length)))
+                : [];
+            const context = overviewPages.length ? overviewPages : ranked;
             const request = scope.query === 'summarize' && !/summari[sz]e/i.test(message) ? 'Summarize ' + message : message;
-            const answer = await tutorAnswer(call, request, context, history, comparison ? scope.names : []);
-            return respond(answer?.text || refusal, { topic: answer?.topic ? (history?.question || answer.topic) : undefined });
+            const answer = await tutorAnswer(call, request, context, history, comparison || overview ? scope.names : []);
+            // A rejected generative summary must not turn a readable PDF into
+            // "unsupported". Offer strictly extractive, page-cited passages.
+            const fallback = overview && !answer?.text ? sourceOverview(context, scope.names) : null;
+            return respond(answer?.text || fallback || refusal, { topic: answer?.topic ? (history?.question || answer.topic) : undefined });
         }
 
     } catch (error) {
