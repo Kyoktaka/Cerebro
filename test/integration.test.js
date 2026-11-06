@@ -124,12 +124,12 @@ test('local model discovery, grounded PDF responses, and persisted index', async
         assert.match(invalid.body.error, /ollama pull missing-model/);
 
         const callsBeforeStudy = requests.length;
-        const scoped = await streamChat(base, { message: 'create 10 quiz questions from alpha.pdf', sessionId, conversationId, model: 'llama3.2' });
+        const scoped = await streamChat(base, { message: 'create 10 quiz questions fill-in-the-blank from alpha.pdf', sessionId, conversationId, model: 'llama3.2' });
         assert.match(scoped.at(-1).answer, /1 of 10 requested/);
         assert.match(scoped.at(-1).answer, /alpha\.pdf/);
         assert.doesNotMatch(scoped.at(-1).answer, /beta\.pdf/);
         assert.equal(requests.length, callsBeforeStudy);
-        const both = await streamChat(base, { message: 'quiz from alpha.pdf and beta.pdf', sessionId, conversationId, model: 'llama3.2' });
+        const both = await streamChat(base, { message: 'fill-in-the-blank quiz from alpha.pdf and beta.pdf', sessionId, conversationId, model: 'llama3.2' });
         assert.match(both.at(-1).answer, /alpha\.pdf/);
         assert.match(both.at(-1).answer, /beta\.pdf/);
         const scopedQuestion = await streamChat(base, { message: 'What does alpha explain in alpha.pdf?', sessionId, conversationId, model: 'llama3.2' });
@@ -145,7 +145,7 @@ test('local model discovery, grounded PDF responses, and persisted index', async
         assert.deepEqual(focus.body.pdfNames, ['alpha.pdf', 'beta.pdf']);
         assert.deepEqual(focus.body.activePdfNames, ['beta.pdf']);
         const unfocused = await streamChat(base, { message: 'quiz from alpha.pdf', sessionId, conversationId, model: 'llama3.2' });
-        assert.match(unfocused.at(-1).answer, /alpha\.pdf/);
+        assert.match(unfocused.at(-1).answer, /Select the named PDF/);
         assert.doesNotMatch(unfocused.at(-1).answer, /beta\.pdf/);
         const study = await streamChat(base, { message: 'What does beta explain?', sessionId, conversationId, model: 'llama3.2' });
         assert.equal(study.at(-1).mode, 'study');
@@ -158,7 +158,8 @@ test('local model discovery, grounded PDF responses, and persisted index', async
         assert.match(qwenStudy.at(-1).answer, /Beta document explains plants/);
         assert.equal(requests.at(-1).model, 'qwen2.5-coder:3b');
         assert.equal(requests.at(-1).format.type, 'object');
-        assert.deepEqual(requests.at(-1).format.properties.evidence.items.required, ['source', 'quote']);
+        assert.deepEqual(requests.at(-2).format.properties.evidence.items.required, ['source', 'quote']);
+        assert.deepEqual(requests.at(-1).format.required, ['supported']);
         assert.equal(requests.at(-1).options.temperature, 0);
         for (const reply of [
             'fabricated response',
@@ -174,9 +175,7 @@ test('local model discovery, grounded PDF responses, and persisted index', async
         const unrelated = await streamChat(base, { message: 'What is science?', sessionId, conversationId, model: 'llama3.2' });
         assert.match(unrelated.at(-1).answer, /cannot answer/i);
         const quiz = await streamChat(base, { message: 'create me a quiz', sessionId, conversationId, model: 'llama3.2' });
-        assert.match(quiz.at(-1).answer, /Answer key:/);
-        assert.match(quiz.at(-1).answer, /beta\.pdf/);
-        assert.doesNotMatch(quiz.at(-1).answer, /alpha\.pdf/);
+        assert.match(quiz.at(-1).answer, /could not find suitable passages/);
         const unrelatedQuiz = await streamChat(base, { message: 'create a quiz about science', sessionId, conversationId, model: 'llama3.2' });
         assert.match(unrelatedQuiz.at(-1).answer, /cannot answer/i);
 

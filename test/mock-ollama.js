@@ -43,10 +43,18 @@ const server = http.createServer(async (req, res) => {
         requests.push(body);
         let answer = 'Local chat works.';
         if (body.format === 'json' || body.format?.type === 'object') {
-            const prompt = body.messages.at(-1).content;
-            const context = prompt.split('=== START RETRIEVED PDF CONTEXT ===\n')[1]?.split('\n=== END RETRIEVED PDF CONTEXT ===')[0];
-            const passages = JSON.parse(context);
-            answer = JSON.stringify({ evidence: passages.length ? [{ source: passages[0].source, quote: passages[0].text }] : [] });
+            if (body.format?.properties?.supported) {
+                const prompt = body.messages.at(-1).content;
+                const question = JSON.parse(prompt.split('QUESTION: ')[1].split('\nVERIFIED PDF QUOTES:')[0]);
+                const quotes = JSON.parse(prompt.split('VERIFIED PDF QUOTES: ')[1].split('\nDoes this evidence')[0]);
+                const { questionHasEvidence } = require('../rag');
+                answer = JSON.stringify({ supported: questionHasEvidence(question, quotes.map(item => ({ text: item.quote }))) });
+            } else {
+                const prompt = body.messages.at(-1).content;
+                const context = prompt.split('=== START RETRIEVED PDF CONTEXT ===\n')[1]?.split('\n=== END RETRIEVED PDF CONTEXT ===')[0];
+                const passages = JSON.parse(context);
+                answer = JSON.stringify({ evidence: passages.length ? [{ source: passages[0].source, quote: passages[0].text }] : [] });
+            }
             if (chatReplyOverride !== null) answer = chatReplyOverride;
         }
         if (body.stream === false) return res.end(JSON.stringify({ message: { role: 'assistant', content: answer }, done: true }));

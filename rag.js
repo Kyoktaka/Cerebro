@@ -101,15 +101,16 @@ function resolveDocumentScope(question, uploadedNames, activeNames) {
     const query = chars.join('');
     if (/\.pdf\b/i.test(query)) return { error: 'The requested PDF is not available. Select an uploaded PDF and try again.' };
     const names = [...new Set(matched)];
+    if (names.some(name => !activeNames.includes(name))) return { error: 'Select the named PDF in Sources before asking about it.' };
     return { names: names.length ? names : activeNames, query: query.trim() || 'summarize' };
 }
 
 function quizRequest(question) {
     question = question.replace(/\bmultiple[ -]choices\b/gi, 'multiple choice').replace(/\bidentification\b/gi, 'short-answer questions').replace(/^\s*what about\s+/i, '');
     if (!/\b(?:quiz|quizzes|reviewer|flashcards?|multiple[ -]choice|mcqs?|practice questions|short[ -]answer questions|definition questions|fill[ -]in[ -]the[ -]blank)\b/i.test(question)) return null;
-    const kind = /\b(?:multiple[ -]choice|mcqs?)\b/i.test(question) ? 'multiple-choice' : /\bflashcards?\b/i.test(question) ? 'flashcards' : /\b(?:term[ -]definition|definitions?)\b/i.test(question) ? 'definition' : /\bshort[ -]answer\b/i.test(question) ? 'short-answer' : 'fill';
+    const kind = /\b(?:fill[ -]in[ -]the[ -]blank)\b/i.test(question) ? 'fill' : /\bflashcards?\b/i.test(question) ? 'flashcards' : /\b(?:term[ -]definition|definitions?)\b/i.test(question) ? 'definition' : /\bshort[ -]answer\b/i.test(question) ? 'short-answer' : 'multiple-choice';
     const countMatch = question.match(/\b(\d{1,2})\s+(?:(?:multiple[ -]choice|short[ -]answer|practice|definition)\s+)?(?:quiz(?:zes)?|questions?|flashcards?|mcqs?)\b/i);
-    const count = countMatch ? Math.max(1, Math.min(20, Number(countMatch[1]))) : 5;
+    const count = countMatch ? Math.max(1, Math.min(20, Number(countMatch[1]))) : 10;
     const topic = question.toLowerCase().replace(/\b\d{1,2}\s+(?=(?:(?:multiple[ -]choice|short[ -]answer|practice|definition)\s+)?(?:quiz(?:zes)?|questions?|flashcards?|mcqs?)\b)/g, '').replace(/\b(?:create|make|generate|give|build|prepare|write|please|could|would|can|you|me|a|an|the|some|and|both|quiz|quizzes|reviewer|flashcards|flashcard|questions|question|about|on|from|using|based|of|for|this|these|my|pdf|pdfs|document|documents|file|files|uploaded|multiple|choice|mcq|mcqs|short|answer|fill|in|blank|practice|term|definition|definitions)\b/g, ' ').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
     return { topic, count, kind };
 }
