@@ -666,7 +666,8 @@ app.post('/api/upload', (req, res, next) => {
             charCount: totalChars,
             pdfCount: fileNames.length,
             maxPDFs: MAX_PDFS_PER_CONVERSATION,
-            truncated: truncated
+            truncated: truncated,
+            extractedPages: newDocuments.map(doc => ({ name: doc.name, pages: doc.pageCount, readablePages: doc.readablePages }))
         });
 
     } catch (error) {
