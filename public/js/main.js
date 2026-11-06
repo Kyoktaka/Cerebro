@@ -120,3 +120,28 @@ async function logout() {
 }
 
 renderAuth();
+
+
+// Carry study prompts across sign-in without changing authentication APIs.
+function openStudyWorkspace(promptText = '', attach = false) {
+    try {
+        if (promptText.trim()) sessionStorage.setItem('cerebro_pending_prompt', promptText.trim());
+        if (attach) sessionStorage.setItem('cerebro_attach_hint', '1');
+    } catch {}
+    window.location.href = sessionId && userData ? 'chat.html' : 'login.html';
+}
+
+const homePromptForm = document.getElementById('homePromptForm');
+if (homePromptForm) {
+    homePromptForm.addEventListener('submit', event => {
+        event.preventDefault();
+        const prompt = document.getElementById('homePrompt')?.value || '';
+        if (prompt.trim()) openStudyWorkspace(prompt);
+    });
+    document.querySelectorAll('[data-home-action]').forEach(button => {
+        button.addEventListener('click', () => {
+            const action = button.dataset.homeAction;
+            openStudyWorkspace(action === 'upload' ? '' : action, action === 'upload');
+        });
+    });
+}

@@ -52,7 +52,7 @@ function setOllamaStatus(message, state) {
 }
 
 function syncOllamaControls() {
-    sendBtn.disabled = !selectedModel || isSending || isUploading;
+    sendBtn.disabled = !selectedModel || !chatInput.value.trim() || isSending || isUploading;
     uploadBtn.disabled = !embeddingAvailable || isUploading || isSending;
     retryOllamaBtn.disabled = isLoadingModels || isUploading || isSending;
     uploadBtn.title = embeddingAvailable ? 'Add PDF' : 'PDF study needs a local embedding model.';
@@ -810,9 +810,14 @@ function renderCurrentConversation() {
     if (currentMessages.length === 0) {
         chatMessages.innerHTML = `
             <div class="welcome-message">
-                <p class="welcome-kicker">Your workspace</p>
-                <h2>What are you studying today?</h2>
-                <p>Add a PDF to ask questions or create study cards.</p>
+                <h2>What would you like to study?</h2>
+                <p>Ask a question, or add a PDF to study from your sources.</p>
+                <div class="welcome-actions">
+                    <button type="button" data-welcome-upload><i class="fas fa-paperclip" aria-hidden="true"></i> Upload PDF</button>
+                    <button type="button" data-study-prompt="Quiz me interactively on the focused PDFs, one multiple-choice question at a time, with four options.">Create quiz</button>
+                    <button type="button" data-study-prompt="Generate flashcards with clear front and back sides.">Flashcards</button>
+                    <button type="button" data-study-prompt="Summarize the focused PDF documents.">Summarize</button>
+                </div>
             </div>
         `;
         return;
@@ -1019,22 +1024,32 @@ if (fileInput) {
 
 function formatMessage(text, allowStudy = false) {
     if (!text) return '';
-    const plain = value => escapeHtml(value).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
-    const render = value => {
-        if (!allowStudy) return plain(value);
-        let html = '', offset = 0;
-        for (const match of value.matchAll(/\[([^\n]+?, p\. (\d+))\]\(cerebro:([a-f0-9]{64}):(\d+)\)/g)) {
-            if (match[2] !== match[4]) continue;
-            html += plain(value.slice(offset, match.index));
-            html += `<button type="button" class="source-citation" data-digest="${match[3]}" data-page="${match[4]}">${escapeHtml(match[1])}</button>`;
-            offset = match.index + match[0].length;
-        }
-        return html + plain(value.slice(offset));
-    };
+    const markdown = value => window.CerebroMarkdown
+        ? window.CerebroMarkdown.render(value)
+        : '<p>' + escapeHtml(value).replace(/\n/g, '<br>') + '</p>';
+
+    function render(value) {
+        const citations = [];
+        const prepared = allowStudy ? value.replace(
+            /\[([^\n]+?, p\. (\d+))\]\(cerebro:([a-f0-9]{64}):(\d+)\)/g,
+            (original, label, displayedPage, digest, sourcePage) => {
+                if (displayedPage !== sourcePage) return original;
+                const marker = 'CEREBRO_CITATION_' + citations.length + '_END';
+                citations.push('<button type="button" class="source-citation" data-digest="' +
+                    digest + '" data-page="' + sourcePage + '">' + escapeHtml(label) + '</button>');
+                return marker;
+            }
+        ) : value;
+        return markdown(prepared).replace(/CEREBRO_CITATION_(\d+)_END/g,
+            (marker, index) => citations[Number(index)] || marker);
+    }
+
     const marker = '\n\nAnswer key:\n';
     const markerIndex = allowStudy ? text.indexOf(marker) : -1;
     if (markerIndex !== -1 && /^(?:Reviewed study set|Flashcards|Multiple choice|Complete the definitions|Short answer|Fill in the blanks)/.test(text)) {
-        return `${render(text.slice(0, markerIndex))}<details class="study-answers"><summary>Show answers</summary>${render(text.slice(markerIndex + marker.length))}</details>`;
+        return render(text.slice(0, markerIndex)) +
+            '<details class="study-answers"><summary>Show answers</summary>' +
+            render(text.slice(markerIndex + marker.length)) + '</details>';
     }
     return render(text);
 }
@@ -1092,6 +1107,7 @@ if (chatInput) {
         }
     });
     chatInput.addEventListener('input', () => {
+        syncOllamaControls();
         chatInput.style.height = 'auto';
         chatInput.style.height = `${Math.min(chatInput.scrollHeight, 160)}px`;
     });

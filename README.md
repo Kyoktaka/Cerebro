@@ -55,7 +55,7 @@ OLLAMA_NUM_CTX=8192
 - Upload up to 10 PDFs per conversation, at most 10 MB each. Extracted text across the conversation is limited to 1,000,000 characters.
 - Select which uploaded PDFs to focus on or remove a PDF. Without a PDF, Cerebro asks you to upload one instead of answering from general knowledge.
 - Ask a question or enter a term. Cerebro checks quoted evidence against selected passages and independently reviews the answer. Each of five review scores must reach 9/10. A requested revision gets one more generation and review attempt.
-- Click a page citation to open the original PDF in a new tab. Older uploads without page metadata use filename and passage citations. Upload them again for page links.
+- Click a page citation to read the original PDF beside the conversation on wide screens, or in the full-screen PDF viewer on smaller devices. The browser PDF controls provide zoom and search. Older uploads without page metadata use filename and passage citations. Upload them again for page links.
 - Ask for a quiz, flashcards, or a mixed-format study set. A plain quiz requests 10 four-option multiple-choice questions. For example, try `Create 5 hard identification questions from biology.pdf`. Each item, key, hint, and explanation goes through review. Cerebro shows the number approved if fewer pass.
 - Type `Quiz me` for one question at a time. Reply with an answer, `hint`, `skip`, or `end quiz`. The final score uses first attempts and lists topics and cited sections to revisit. Progress is saved with the conversation. Changing the selected PDFs ends the practice session.
 - Name a selected PDF to limit the current request to that file. With no file named, Cerebro uses the selected PDFs. It refuses requests for unavailable or unselected PDFs.
