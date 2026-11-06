@@ -52,6 +52,9 @@ OLLAMA_NUM_CTX=8192
 ## Use Cerebro
 
 - Upload a text-based PDF in a conversation. Cerebro extracts the text locally, divides it into passages, and embeds the passages through Ollama. Questions search those passages.
+- After uploading, the chat reports the number of pages with extractable text. Image-only pages still require OCR.
+- Whole-document summaries and "explain the main concepts" requests sample passages across the selected PDF pages. If the generated summary fails evidence verification, Cerebro shows clearly labeled excerpts with source citations instead of incorrectly claiming the PDF has no supported information.
+- The Sources bar shows the active PDF names. When one of two PDFs is selected, only that PDF is used for answers. Select additional files through Sources to compare or summarize them together.
 - Upload up to 10 PDFs per conversation, at most 10 MB each. Extracted text across the conversation is limited to 1,000,000 characters.
 - Select which uploaded PDFs to focus on or remove a PDF. Without a PDF, Cerebro asks you to upload one instead of answering from general knowledge.
 - Ask a question or enter a term. Cerebro checks quoted evidence against selected passages and independently reviews the answer. Each of five review scores must reach 9/10. A requested revision gets one more generation and review attempt.
