@@ -814,11 +814,11 @@ app.post('/api/chat', async (req, res) => {
             // A global explanation is not a keyword search. Give the model
             // representative pages from every focused PDF, in document order.
             const overviewPages = overview && !comparison
-                ? selectedOverviewChunks(selected, scope.names)
+                ? selectedOverviewChunks(selected, scope.names, Math.max(1, Math.floor(10 / scope.names.length)))
                 : [];
             const context = overviewPages.length ? overviewPages : ranked;
             const request = scope.query === 'summarize' && !/summari[sz]e/i.test(message) ? 'Summarize ' + message : message;
-            const answer = await tutorAnswer(call, request, context, history, comparison ? scope.names : []);
+            const answer = await tutorAnswer(call, request, context, history, comparison || overview ? scope.names : []);
             // A rejected generative summary must not turn a readable PDF into
             // "unsupported". Offer strictly extractive, page-cited passages.
             const fallback = overview && !answer?.text ? sourceOverview(context, scope.names) : null;
