@@ -19,7 +19,9 @@ const {
     openChat
 } = require('./local-ai');
 const { chunkText, retrieveChunks, questionHasEvidence, resolveDocumentScope, quizRequest, makeSourceQuiz } = require('./rag');
-const { EVIDENCE_SCHEMA, groundingMessages, validateEvidence } = require('./grounding');
+const { EVIDENCE_SCHEMA, REVIEW_SCHEMA, groundingMessages, validateEvidence, reviewMessages, validateReview } = require('./grounding');
+const { documentAnswer } = require('./document-answers');
+const { renderPageText } = require('./pdf-text');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -574,7 +576,7 @@ app.post('/api/upload', (req, res, next) => {
                 return res.status(400).json({ error: `File ${file.originalname} is not a PDF.` });
             }
             // Copy pooled Buffer bytes so PDF.js reads only this file.
-            const pdfData = await pdfParse(new Uint8Array(dataBuffer));
+            const pdfData = await pdfParse(new Uint8Array(dataBuffer), { pagerender: renderPageText });
             let extractedText = pdfData.text?.trim() || '';
 
             if (!extractedText) {
@@ -723,6 +725,10 @@ app.post('/api/chat', async (req, res) => {
         if (hasPDF) {
             const scope = resolveDocumentScope(message, pdfContext.pdfNames, pdfContext.activePdfNames);
             if (scope.error) return sendStudyAnswer(res, session, conversationId, message, scope.error, stream);
+            if (!scope.names.length) return sendStudyAnswer(res, session, conversationId, message, 'Select a PDF in Sources before asking a question.', stream);
+            const documents = parsePdfContent(pdfContext.pdfContent, pdfContext.pdfNames).filter(document => scope.names.includes(document.name));
+            const directAnswer = documents.length ? documentAnswer(scope.query, documents) : null;
+            if (directAnswer) return sendStudyAnswer(res, session, conversationId, message, directAnswer, stream);
             const embeddingModel = installedModel(models, OLLAMA_EMBED_MODEL);
             await requireCapability(embeddingModel, 'embedding');
             const index = await ensurePdfIndex(pdfContext, conversationId, models);
@@ -743,14 +749,15 @@ app.post('/api/chat', async (req, res) => {
                 return sendStudyAnswer(res, session, conversationId, message, answer, stream);
             }
             const [questionVector] = await embedTexts([scope.query], OLLAMA_EMBED_MODEL);
-            const evidence = selectedChunks.filter(chunk => questionHasEvidence(scope.query, [chunk]));
-            if (!evidence.length) return sendStudyAnswer(res, session, conversationId, message, refusal, stream);
-            const chunks = retrieveChunks({ chunks: evidence }, scope.names, questionVector);
+            const chunks = retrieveChunks({ chunks: selectedChunks }, scope.names, questionVector);
             const response = await openChat(selectedModel, groundingMessages(scope.query, chunks), false, controller.signal, EVIDENCE_SCHEMA);
             const result = await response.json();
             if (result.error) throw new OllamaError(`Ollama request failed: ${result.error}`, 502);
             const evidenceQuotes = validateEvidence(result.message?.content, chunks, scope.query);
             if (!evidenceQuotes.length) return sendStudyAnswer(res, session, conversationId, message, refusal, stream);
+            const reviewResponse = await openChat(selectedModel, reviewMessages(scope.query, evidenceQuotes), false, controller.signal, REVIEW_SCHEMA);
+            const reviewResult = await reviewResponse.json();
+            if (!validateReview(reviewResult.message?.content)) return sendStudyAnswer(res, session, conversationId, message, refusal, stream);
             const answer = `Passages from your PDFs (check whether they answer your question):\n\n${evidenceQuotes.map(item => `Source: ${item.source}\n${item.quote}`).join('\n\n')}`;
             return sendStudyAnswer(res, session, conversationId, message, answer, stream);
         }

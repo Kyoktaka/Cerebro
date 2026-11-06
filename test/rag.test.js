@@ -1,6 +1,26 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence, resolveDocumentScope, quizRequest, makeSourceQuiz } = require('../rag');
+const { documentAnswer } = require('../document-answers');
+const { renderPageText } = require('../pdf-text');
+
+test('PDF text keeps table columns separated and rows on separate lines', async () => {
+    const item = (str, x, y, width) => ({ str, transform: [1, 0, 0, 1, x, y], width });
+    const page = { getTextContent: async () => ({ items: [item('Subject', 0, 100, 40), item('Code', 45, 100, 25), item('CS101', 0, 80, 35), item('Computing', 80, 80, 60)] }) };
+    assert.equal(await renderPageText(page), 'Subject Code\nCS101 Computing');
+});
+
+test('registration table operations use full document text and disclose unreadable rows', () => {
+    const documents = [{ name: 'registration.pdf', text: 'Registration form for the current semester\nSubject Code Description Units\nCS101 Introduction to Computing 3\nMATH-102 College Mathematics 3\nCS101 Introduction to Computing 3\nTotal units 6\nREF999 Payment reference' }];
+    const count = documentAnswer('how many subjects are in there?', documents);
+    assert.match(count, /2 distinct subject codes/);
+    assert.doesNotMatch(count, /REF999/);
+    assert.match(documentAnswer('tell me the subject codes', documents), /MATH-102/);
+    assert.match(documentAnswer('summarize it', documents), /Registration form/);
+    assert.equal(documentAnswer('summarize quantum physics', documents), null);
+    assert.equal(documentAnswer('how many subjects have failed?', documents), null);
+    assert.match(documentAnswer('how many subjects are in there?', [{ name: 'broken.pdf', text: 'unreadable table' }]), /could not reliably read/);
+});
 
 test('conversational study requests and resume fields remain source bounded', () => {
     const chunks = [{ pdfName: 'resume.pdf', text: 'Technical skills: React, Node.js, PostgreSQL\nDeploy applications using Vercel, Netlify, and Hostinger.' }];
@@ -23,11 +43,13 @@ test('conversational study requests and resume fields remain source bounded', ()
 test('quiz uses exact source sentences and identifies requested topics', () => {
     const chunks = [{ pdfName: 'resume.pdf', text: 'James is a software developer building websites.\nHe creates database systems for clients.' }];
     assert.equal(quizRequest('create me a quiz').topic, '');
+    assert.equal(quizRequest('create me a quiz').count, 10);
+    assert.equal(quizRequest('create me a quiz').kind, 'multiple-choice');
     assert.equal(quizRequest('Create me 10 quiz questions.').count, 10);
     assert.equal(quizRequest('Create me 10 quiz questions.').topic, '');
     assert.equal(quizRequest('make a quiz about science').topic, 'science');
     assert.equal(questionHasEvidence('who is the person?', chunks), true);
-    const quiz = makeSourceQuiz(chunks);
+    const quiz = makeSourceQuiz(chunks, 5, 'fill');
     assert.equal(quiz.length, 2);
     for (const item of quiz) assert.ok(chunks[0].text.includes(item.prompt.replace('_____', item.answer)));
 });
@@ -42,7 +64,7 @@ test('scope follows explicit uploaded filenames and refuses missing files', () =
     const both = resolveDocumentScope('quiz from DocA.pdf and DocB.pdf', uploaded, uploaded);
     assert.deepEqual(both.names, ['DocA.pdf', 'DocB.pdf']);
     assert.equal(quizRequest(both.query).topic, '');
-    assert.deepEqual(resolveDocumentScope('quiz from DocA.pdf', uploaded, ['DocB.pdf']).names, ['DocA.pdf']);
+    assert.match(resolveDocumentScope('quiz from DocA.pdf', uploaded, ['DocB.pdf']).error, /Select the named PDF/);
     assert.match(resolveDocumentScope('quiz from unknown.pdf', uploaded, uploaded).error, /not available/);
     assert.deepEqual(resolveDocumentScope('quiz me', uploaded, ['DocB.pdf']).names, ['DocB.pdf']);
 });
