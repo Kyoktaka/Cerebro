@@ -52,7 +52,7 @@ function setOllamaStatus(message, state) {
 }
 
 function syncOllamaControls() {
-    sendBtn.disabled = !selectedModel || isSending || isUploading;
+    sendBtn.disabled = !selectedModel || !chatInput.value.trim() || isSending || isUploading;
     uploadBtn.disabled = !embeddingAvailable || isUploading || isSending;
     retryOllamaBtn.disabled = isLoadingModels || isUploading || isSending;
     uploadBtn.title = embeddingAvailable ? 'Add PDF' : 'PDF study needs a local embedding model.';
@@ -810,9 +810,14 @@ function renderCurrentConversation() {
     if (currentMessages.length === 0) {
         chatMessages.innerHTML = `
             <div class="welcome-message">
-                <p class="welcome-kicker">Your workspace</p>
-                <h2>What are you studying today?</h2>
-                <p>Add a PDF to ask questions or create study cards.</p>
+                <h2>What would you like to study?</h2>
+                <p>Ask a question, or add a PDF to study from your sources.</p>
+                <div class="welcome-actions">
+                    <button type="button" data-welcome-upload><i class="fas fa-paperclip" aria-hidden="true"></i> Upload PDF</button>
+                    <button type="button" data-study-prompt="Create a multiple-choice quiz with four options per question.">Create quiz</button>
+                    <button type="button" data-study-prompt="Generate flashcards with clear front and back sides.">Flashcards</button>
+                    <button type="button" data-study-prompt="Summarize the focused PDF documents.">Summarize</button>
+                </div>
             </div>
         `;
         return;
@@ -1092,6 +1097,7 @@ if (chatInput) {
         }
     });
     chatInput.addEventListener('input', () => {
+        syncOllamaControls();
         chatInput.style.height = 'auto';
         chatInput.style.height = `${Math.min(chatInput.scrollHeight, 160)}px`;
     });
