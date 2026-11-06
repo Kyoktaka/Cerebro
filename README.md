@@ -1,6 +1,6 @@
 # Cerebro
 
-Cerebro is a local PDF chat app. It extracts text from your PDFs, finds relevant passages with local embeddings, and sends your question and those passages to a model running in Ollama. General chat is also available when no PDF is active. No cloud API key is required.
+Cerebro is a local PDF study app. It extracts text from your PDFs, uses local Ollama embeddings to find passages, and verifies model-selected quotations against the source. It builds extractive study materials. No cloud API key is required.
 
 ## Start locally
 
@@ -51,14 +51,33 @@ OLLAMA_NUM_CTX=8192
 
 ## Use Cerebro
 
-- Upload a text-based PDF in a conversation. Cerebro extracts the text locally, divides it into passages, and embeds the passages through Ollama. Questions search those passages before the chat model responds.
+- Upload a text-based PDF in a conversation. Cerebro extracts the text locally, divides it into passages, and embeds the passages through Ollama. Questions search those passages.
 - Upload up to 10 PDFs per conversation, at most 10 MB each. Extracted text across the conversation is limited to 1,000,000 characters.
-- Select which uploaded PDFs to focus on, remove a PDF, or exit PDF mode. With no active PDF, Cerebro uses general chat.
-- General chat answers stream from the local model. With PDFs selected, Cerebro returns verbatim passages with source names and refuses questions whose key words are absent. Conversations are saved locally.
-- Ask for a quiz to make fill-in-the-blank questions from sentences in the selected PDFs. The answer key identifies the source; topic requests need matching words in a selected passage.
+- Select which uploaded PDFs to focus on or remove a PDF. Without a PDF, Cerebro asks you to upload one instead of answering from general knowledge.
+- For questions, Ollama selects quotations from retrieved passages. Cerebro checks the exact source and wording before returning them, and refuses questions whose key words are absent. Conversations are saved locally.
+- Ask for a quiz, flashcards, short-answer questions, definitions, or multiple-choice questions. Specify a count, such as `10 quiz questions`, and optionally a topic or an uploaded file name such as `alpha.pdf`. The answer key reveals the exact supporting sentence and source. Multiple-choice options come from an explicit list in the same sentence; if there are not enough suitable passages, Cerebro says how many it could make.
+- Name an uploaded PDF to use that file for the current request, even if it is not selected in Sources. With no file named, Cerebro uses the selected PDFs. It refuses requests for unavailable PDFs. Naming a file does not change the saved Sources selection.
 - Use the theme button in the header to switch between light and dark mode. Cerebro remembers your choice and starts in dark mode.
 
-PDF answers quote retrieved text rather than generating a summary. Word matching can miss paraphrases, and a matching passage may not fully answer the question. Check the original documents. Image-only or scanned PDFs need OCR before Cerebro can read their text.
+PDF mode quotes source text rather than generating an answer or summary. Study prompts use source sentences and do not add model-written claims. Matching words and validating a quote do not guarantee that it answers the question, and conservative matching can refuse valid paraphrases. A model may select irrelevant genuine text or fail to return valid JSON. Review the cited passage in the original PDF. Image-only or scanned PDFs need OCR before Cerebro can read their text.
+
+Evidence selection uses Ollama's [structured output schema](https://docs.ollama.com/capabilities/structured-outputs) at temperature zero, followed by exact-source validation. Use an Ollama version that supports JSON schemas in the chat endpoint. Model capability discovery does not guarantee that every model follows the task equally well.
+
+The [flashcard template](docs/flashcard-template.md) provides a Markdown reveal-and-recall format. In the chat workspace, use **Show answers** to reveal a study set's answer key.
+
+### Optional Python Ollama wrapper
+
+The application itself uses Node.js. [grounded_ollama.py](examples/python/grounded_ollama.py) is a separate LangChain/Ollama example for callers that already have retrieved PDF passages. With Python 3.12, install its dependencies while online with `python -m pip install -r examples/python/requirements.txt`, then provide a UTF-8 JSON file:
+
+```json
+{
+  "question": "What is a computer?",
+  "selected_sources": ["computer.pdf"],
+  "passages": [{"source": "computer.pdf", "text": "A computer is an electronic device that processes data according to instructions."}]
+}
+```
+
+Run `python examples/python/grounded_ollama.py context.json`. The wrapper uses `OLLAMA_BASE_URL` and `OLLAMA_MODEL`, disables LangSmith tracing in its CLI, and validates that each returned quote exactly appears in the selected source. It does not extract PDFs or build a vector index. The model can still select an irrelevant genuine quote, so quotation validation is not a guarantee of relevance or entailment. Check important answers in the PDF. The wrapper sends the provided context to the configured Ollama endpoint; choose a trusted local endpoint.
 
 Account and conversation records live in `users/`; PDF search indexes live in `indexes/`. These directories are local and ignored by Git. Passwords are stored in plaintext, and the password recovery endpoint can return them. Use a unique password and do not expose Cerebro to the public internet.
 
@@ -73,7 +92,7 @@ Cerebro exposes these local endpoints:
 | `POST /api/upload` | Upload PDFs for a session and conversation. |
 | `POST /api/chat` | Ask a question. Accepts `message`, `sessionId`, `conversationId`, optional `model`, and `stream: true`. |
 
-With `stream: true`, `/api/chat` returns newline-delimited JSON. `delta` events contain a `content` fragment; a `done` event contains the completed `answer` and chat `mode`; an `error` event reports a failure. Cerebro checks each pulled model with Ollama's `/api/show` and lists only models that advertise the `completion` capability, excluding embedding-only models. Ollama's own API uses [`/api/tags`](https://docs.ollama.com/api/tags) to list models, [`/api/chat`](https://docs.ollama.com/api/chat) for chat, and [`/api/embed`](https://docs.ollama.com/api/embed) for embeddings.
+With `stream: true`, `/api/chat` returns newline-delimited JSON. A `delta` event contains the validated response, a `done` event contains the completed `answer` and chat `mode`, and an `error` event reports a failure. PDF responses are buffered until validation completes; model tokens are not streamed directly. Cerebro checks each pulled model with Ollama's `/api/show` and lists only models that advertise the `completion` capability, excluding embedding-only models. Ollama's own API uses [`/api/tags`](https://docs.ollama.com/api/tags) to list models, [`/api/chat`](https://docs.ollama.com/api/chat) for chat, and [`/api/embed`](https://docs.ollama.com/api/embed) for embeddings.
 
 ## Troubleshooting
 

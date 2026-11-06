@@ -2,6 +2,8 @@ const http = require('node:http');
 
 const requests = [];
 const embedRequests = [];
+let chatReplyOverride = null;
+function setChatReply(reply) { chatReplyOverride = reply; }
 const models = ['llama3.2:latest', 'qwen2.5-coder:3b', 'nomic-embed-text:latest', 'mxbai-embed-large:latest'];
 
 async function readJson(req) {
@@ -39,8 +41,14 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.url === '/api/chat') {
         requests.push(body);
-        const answer = body.messages.at(-1).content.includes('Document excerpts:')
-            ? 'Answer from the focused PDF.' : 'Local chat works.';
+        let answer = 'Local chat works.';
+        if (body.format === 'json' || body.format?.type === 'object') {
+            const prompt = body.messages.at(-1).content;
+            const context = prompt.split('=== START RETRIEVED PDF CONTEXT ===\n')[1]?.split('\n=== END RETRIEVED PDF CONTEXT ===')[0];
+            const passages = JSON.parse(context);
+            answer = JSON.stringify({ evidence: passages.length ? [{ source: passages[0].source, quote: passages[0].text }] : [] });
+            if (chatReplyOverride !== null) answer = chatReplyOverride;
+        }
         if (body.stream === false) return res.end(JSON.stringify({ message: { role: 'assistant', content: answer }, done: true }));
         res.setHeader('Content-Type', 'application/x-ndjson');
         res.write(`${JSON.stringify({ message: { role: 'assistant', content: answer.slice(0, 7) }, done: false })}\n`);
@@ -59,4 +67,4 @@ if (require.main === module && process.argv.includes('--serve')) {
     server.listen(port, '127.0.0.1', () => console.log(`Mock Ollama at http://127.0.0.1:${port}`));
 }
 
-module.exports = { server, requests, embedRequests };
+module.exports = { server, requests, embedRequests, setChatReply };
