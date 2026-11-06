@@ -10,13 +10,14 @@ test('PDF text keeps table columns separated and rows on separate lines', async 
     assert.equal(await renderPageText(page), 'Subject Code\nCS101 Computing');
 });
 
-test('registration table operations use full document text and disclose unreadable rows', () => {
-    const documents = [{ name: 'registration.pdf', text: 'Registration form for the current semester\nSubject Code Description Units\nCS101 Introduction to Computing 3\nMATH-102 College Mathematics 3\nCS101 Introduction to Computing 3\nTotal units 6\nREF999 Payment reference' }];
+test('registration table operations use course rows and ignore repeated permit codes', () => {
+    const documents = [{ name: 'registration.pdf', text: 'Registration form for the current semester\nSUBJECT UNIT DESCRIPTION TIME DAY ROOM PROFESSOR\nCS 101 3 Introduction to Computing 08:00AM-09:00AM M Room A\nMATH-102 3 College Mathematics 09:00AM-10:00AM T Room B\nTOTAL: 6\nSUBJECT CODE SIGNATURE\nCS 101\nMATH-102\nREF999 Payment reference' }];
     const count = documentAnswer('how many subjects are in there?', documents);
     assert.match(count, /2 distinct subject codes/);
     assert.doesNotMatch(count, /REF999/);
     assert.match(documentAnswer('tell me the subject codes', documents), /MATH-102/);
-    assert.match(documentAnswer('summarize it', documents), /Registration form/);
+    assert.match(documentAnswer('tell me the subject codes', documents), /Evidence: MATH-102 3 College Mathematics/);
+    assert.match(documentAnswer('summarize it', documents), /2 distinct subjects, 6 units/);
     assert.equal(documentAnswer('summarize quantum physics', documents), null);
     assert.equal(documentAnswer('how many subjects have failed?', documents), null);
     assert.match(documentAnswer('how many subjects are in there?', [{ name: 'broken.pdf', text: 'unreadable table' }]), /could not reliably read/);

@@ -96,7 +96,7 @@ With `stream: true`, `/api/chat` returns newline-delimited JSON. A `delta` event
 
 ## Troubleshooting
 
-General summary requests return sampled, quoted document highlights without relying on model output. Subject-code listing and counting read the full selected document text, recognize rows under a subject/course-code heading, and count distinct codes with row evidence. Counts describe recognized codes, not a guarantee that every subject was extracted. Unreadable tables receive an extraction-specific message. Re-upload older PDFs to use the updated extraction that separates table columns and rows; this is not OCR and complex layouts may still need a text-based export.
+General summary requests return sampled, quoted document highlights without relying on model output. For registration forms with a readable subject/unit/description table and a total-units line, Cerebro instead summarizes the distinct courses and checks parsed unit totals against the reported total. Subject-code listing and counting use the main course rows, not repeated permit or signature tables; evidence shows each code, unit count, and description. Counts describe recognized codes, not a guarantee that every subject was extracted. Unreadable tables receive an extraction-specific message. Re-upload older PDFs to use the updated extraction that separates table columns and rows; this is not OCR and complex layouts may still need a text-based export.
 
 | Symptom | Check |
 | --- | --- |
