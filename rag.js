@@ -1,6 +1,7 @@
 const CHUNK_SIZE = 1400;
 const CHUNK_OVERLAP = 180;
 const MAX_CONTEXT_CHARS = 6000;
+const { isDocumentOverview } = require('./overview');
 
 function chunkText(text) {
     const normalized = text.replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').trim();
@@ -59,6 +60,7 @@ function normalizeTerm(word) {
 }
 
 function questionHasEvidence(question, chunks) {
+    if (isDocumentOverview(question)) return chunks.some(chunk => typeof chunk.text === 'string' && chunk.text.trim().length > 0);
     question = question.replace(/\b(?:give|provide|write)\s+(?:me\s+)?(?:a\s+)?/gi, '').replace(/\b(?:his|her|their)\b/gi, '');
     if (/\bstacks?\b/i.test(question)) {
         question = question.replace(/\b(?:tech(?:nology)?\s+)?stacks?\b/gi, '');
