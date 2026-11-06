@@ -11,6 +11,7 @@ test('recognizes broad explanations and summary shortcuts', () => {
     assert.equal(isDocumentOverview('What is science?'), false);
     assert.equal(isDocumentOverview('Summarize how viruses propagate'), false);
     assert.equal(isDocumentOverview('Summarize page 4'), false);
+    assert.equal(isDocumentOverview('Summarize CPU architecture'), false);
 });
 
 test('short single-page PDFs retain all distinct chunks', () => {
