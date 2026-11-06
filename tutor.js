@@ -73,9 +73,15 @@ async function tutorAnswer(call, request, chunks, history, requiredSources = [])
             'Provide a concise explanation, plus exact supporting quotations identified by passage id.',
         { request, history, sources, feedback }, answerSchema);
         if (draft?.support === 'ambiguous') return { text: 'Which term or passage would you like me to explain?' };
-        if (!['direct', 'deduced'].includes(draft?.support) || typeof draft.answer !== 'string' || !draft.answer.trim()) return null;
+        if (!['direct', 'deduced'].includes(draft?.support) || typeof draft.answer !== 'string' || !draft.answer.trim()) {
+            feedback = 'Provide a supported answer grounded in the supplied passages, with exact quoted evidence. If there is no relevant evidence, report unsupported.';
+            continue;
+        }
         const evidence = anchors(draft.evidence, chunks);
-        if (!evidence || requiredSources.some(source => !evidence.some(item => item.source === source))) return null;
+        if (!evidence || requiredSources.some(source => !evidence.some(item => item.source === source))) {
+            feedback = 'Every cited quote must match its source passage exactly. Cover all requested documents, with at least one verifiable quote from each.';
+            continue;
+        }
         const verdict = await review(call, { question: request, history }, draft, sources,
             'Check the answer itself against its cited quotes in context. Verify that every claim follows and all parts of the question are answered.');
         if (verdict.approved) {
@@ -83,8 +89,7 @@ async function tutorAnswer(call, request, chunks, history, requiredSources = [])
             return { text: prefix + draft.answer.trim() + '\n\nReviewed sources\n' +
                 evidence.map(item => location(item) + '\n“' + item.quote + '”').join('\n\n'), topic: request };
         }
-        if (!verdict.revise) return null;
-        feedback = verdict.revise;
+        feedback = verdict.revise || 'Revise the answer to state only facts supported by the quoted source evidence.';
     }
     return null;
 }
