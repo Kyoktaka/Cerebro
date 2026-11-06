@@ -22,7 +22,9 @@ async function extractDocument(buffer, name, remaining) {
         return { page: i + 1, start, end: Math.min(start + part.length, text.length) };
     }).filter(page => page.end > page.start);
     const truncated = full.length > text.length;
-    return { name, text, layout, truncated, incomplete: truncated || parts.some(part => !part),
+    return { name, text, layout, truncated, pageCount: pdf.numpages,
+        readablePages: parts.filter(part => part.trim()).length,
+        incomplete: truncated || parts.some(part => !part),
         digest: createHash('sha256').update(buffer).digest('hex') };
 }
 
