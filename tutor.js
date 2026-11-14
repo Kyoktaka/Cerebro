@@ -30,7 +30,9 @@ function modelCaller(model, signal) {
 }
 
 function passages(chunks) {
-    return chunks.map(({ pdfName, text, page }, id) => ({ id, source: pdfName, page, text }));
+    return chunks.map(({ pdfName, text, page, heading }, id) => ({
+        id, source: pdfName, page, text, ...(heading ? { heading } : {})
+    }));
 }
 
 function anchors(evidence, chunks) {

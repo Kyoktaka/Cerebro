@@ -1,8 +1,13 @@
 const OLLAMA_BASE_URL = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, '');
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2';
 const OLLAMA_EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text';
-const configuredContext = Number.parseInt(process.env.OLLAMA_NUM_CTX || '8192', 10);
-const OLLAMA_NUM_CTX = Number.isInteger(configuredContext) && configuredContext > 0 ? configuredContext : 8192;
+// Accept human formatting like "32,768" or "32 768" so a stray comma cannot
+// silently collapse the context window to the first two digits (32).
+function parseContext(value) {
+    const parsed = Number.parseInt(String(value || '').replace(/[^\d]/g, ''), 10);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : 8192;
+}
+const OLLAMA_NUM_CTX = parseContext(process.env.OLLAMA_NUM_CTX);
 
 class OllamaError extends Error {
     constructor(message, status = 503) {
@@ -170,6 +175,7 @@ module.exports = {
     OLLAMA_MODEL,
     OLLAMA_EMBED_MODEL,
     OLLAMA_NUM_CTX,
+    parseContext,
     OllamaError,
     modelMatches,
     listModels,

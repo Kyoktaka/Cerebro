@@ -1,4 +1,4 @@
-const { retrieveChunks } = require('./rag');
+const { rankPassages } = require('./hybrid');
 
 // Expand only unambiguous one-edit spelling matches from the selected PDF vocabulary.
 function oneEdit(a, b) {
@@ -25,10 +25,10 @@ function queryVariants(question, chunks) {
     return [...new Set(expansions)].join(' ');
 }
 
-function choosePassages(chunks, names, vector, comparison) {
-    if (!comparison || names.length < 2) return retrieveChunks({ chunks }, names, vector);
+function choosePassages(chunks, names, vector, comparison, query) {
+    if (!comparison || names.length < 2) return rankPassages(chunks, names, vector, query);
     // Each compared document gets a passage, even if its nearest match ranks below another PDF's.
-    return names.flatMap(name => retrieveChunks({ chunks }, [name], vector).slice(0, 1));
+    return names.flatMap(name => rankPassages(chunks, [name], vector, query).slice(0, 1));
 }
 
 module.exports = { queryVariants, choosePassages };

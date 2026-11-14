@@ -3,7 +3,7 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const pdfParse = require('pdf-parse');
 const { renderPageText } = require('./pdf-text');
-const { chunkText } = require('./rag');
+const { chunkText, isHeadingLine } = require('./rag');
 
 async function extractDocument(buffer, name, remaining) {
     const pages = [];
@@ -31,7 +31,17 @@ async function extractDocument(buffer, name, remaining) {
 function documentChunks(doc) {
     const ranges = doc.layout || [{ start: 0, end: doc.text.length }];
     return ranges.flatMap(({ start, end, page }) => chunkText(doc.text.slice(start,end))
-        .map(text => ({ pdfName: doc.name, page, digest: doc.digest, text })));
+        .map(text => ({ pdfName: doc.name, page, digest: doc.digest, text, heading: leadingHeading(text) })));
+}
+
+// Best-effort section marker for a passage: the first heading-like line near the
+// start of the chunk. Undefined when the chunk begins mid-section or has no heading.
+function leadingHeading(text) {
+    const lines = String(text || '').split('\n').map(line => line.trim());
+    for (let i = 0; i < lines.length && i < 6; i++) {
+        if (lines[i] && isHeadingLine(lines[i])) return lines[i];
+    }
+    return undefined;
 }
 
 // Store offsets separately so older text-only conversations still work and marker-like PDF text is safe.

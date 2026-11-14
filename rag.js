@@ -1,7 +1,24 @@
-const CHUNK_SIZE = 1400;
-const CHUNK_OVERLAP = 180;
+function intEnv(name, fallback) {
+    const parsed = Number.parseInt(String(process.env[name] || '').replace(/[^\d]/g, ''), 10);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+const CHUNK_SIZE = intEnv('CEREBRO_CHUNK_SIZE', 1400);
+const CHUNK_OVERLAP = intEnv('CEREBRO_CHUNK_OVERLAP', 180);
 const MAX_CONTEXT_CHARS = 6000;
 const { isDocumentOverview } = require('./overview');
+
+// Strong, low-false-positive signals for a section heading line: numbered or
+// titled sections, or a short ALL-CAPS line without sentence-ending punctuation.
+function isHeadingLine(line) {
+    const trimmed = String(line || '').trim();
+    if (!trimmed || trimmed.length > 90) return false;
+    if (/[.!?]$/.test(trimmed)) return false;
+    if (/^(?:chapter|section|part|unit|lesson|module|topic|appendix|introduction|conclusion|abstract|references?|glossary|summary|objective|outline|background|methodology|discussion)\b/i.test(trimmed)) return true;
+    if (/^\d+(?:\.\d+)*[.)]?\s+\S/.test(trimmed)) return true;
+    const letters = trimmed.replace(/[^A-Za-z]/g, '');
+    if (letters.length < 3) return false;
+    return letters === letters.toUpperCase();
+}
 
 function chunkText(text) {
     const normalized = text.replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').trim();
@@ -11,10 +28,36 @@ function chunkText(text) {
     while (start < normalized.length) {
         let end = Math.min(start + CHUNK_SIZE, normalized.length);
         if (end < normalized.length) {
-            const paragraph = normalized.lastIndexOf('\n', end);
-            const word = normalized.lastIndexOf(' ', end);
-            const boundary = paragraph > start + CHUNK_SIZE * 0.6 ? paragraph : word;
-            if (boundary > start + CHUNK_SIZE * 0.6) end = boundary;
+            const minBoundary = start + CHUNK_SIZE * 0.6;
+            let boundary = -1;
+            // 1. Prefer to start the next chunk at a section heading in the split zone.
+            for (let i = end; i > minBoundary; i--) {
+                if (normalized[i] !== '\n') continue;
+                const nextNewline = normalized.indexOf('\n', i + 1);
+                const line = normalized.slice(i + 1, nextNewline === -1 ? end : Math.min(nextNewline, end));
+                if (isHeadingLine(line)) { boundary = i; break; }
+            }
+            // 2. Otherwise break at a paragraph boundary.
+            if (boundary === -1) {
+                const paragraph = normalized.lastIndexOf('\n', end);
+                if (paragraph > minBoundary) boundary = paragraph;
+            }
+            // 3. Otherwise break after a sentence so related sentences and a
+            // definition with its explanation stay together.
+            if (boundary === -1) {
+                const sentence = Math.max(
+                    normalized.lastIndexOf('. ', end),
+                    normalized.lastIndexOf('! ', end),
+                    normalized.lastIndexOf('? ', end)
+                );
+                if (sentence > minBoundary) boundary = sentence + 1;
+            }
+            // 4. Otherwise break at a word boundary.
+            if (boundary === -1) {
+                const word = normalized.lastIndexOf(' ', end);
+                if (word > minBoundary) boundary = word;
+            }
+            if (boundary > minBoundary) end = boundary;
         }
         const chunk = normalized.slice(start, end).trim();
         if (chunk) chunks.push(chunk);
@@ -80,6 +123,21 @@ function questionHasEvidence(question, chunks) {
         const tokens = new Set((sentence.toLowerCase().match(/[\p{L}\p{N}]+/gu) || []).map(normalizeTerm));
         return (!equation || compact(sentence).includes(compact(equation[0]))) && terms.every(term => tokens.has(term));
     }));
+}
+
+// Detect conversational references to the previous exchange ("give me three
+// examples", "explain that", "tell me more", ...) so they are resolved against
+// the prior question instead of being treated as a fresh, unrelated query.
+function isFollowup(question) {
+    const q = String(question || '').trim().toLowerCase();
+    if (!q) return false;
+    return /^(?:(?:can|could|would|will|please)\s+)?(?:you\s+)?(?:explain|simplify|rephrase|elaborate(?:\s+on)?|expand(?:\s+on)?|clarify)\s+(?:that|it|this)\b/.test(q) ||
+        /^(?:(?:can|could|would)\s+)?(?:you\s+)?(?:give me|show me|list|name|provide)\s+(?:(?:some|a few|two|three|four|five|\d+)\s+)?(?:more\s+)?examples?(?:\s+(?:of|for)\s+(?:that|it|this|them))?\s*[.!?]*$/.test(q) ||
+        /^(?:(?:give me|show me|list|name)\s+)?examples?\s*[.!?]*$/.test(q) ||
+        /^what about\s+(?:it|its|the|that|this|them)\b/.test(q) ||
+        /^(?:tell me\s+more|elaborate|go on|continue|what else|anything else)\b/.test(q) ||
+        /^why\s+(?:is that|does it|is it|do they|so)\b/.test(q) ||
+        /^how\s+(?:does it|does that|is it|so|come)\b/.test(q);
 }
 
 function resolveDocumentScope(question, uploadedNames, activeNames) {
@@ -167,4 +225,4 @@ function makeSourceQuiz(chunks, limit = 5, kind = 'fill', topic = '') {
     return questions;
 }
 
-module.exports = { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence, resolveDocumentScope, quizRequest, makeSourceQuiz };
+module.exports = { CHUNK_SIZE, CHUNK_OVERLAP, chunkText, isHeadingLine, cosineSimilarity, retrieveChunks, questionHasEvidence, resolveDocumentScope, isFollowup, quizRequest, makeSourceQuiz };

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { chunkText, cosineSimilarity, retrieveChunks, questionHasEvidence, resolveDocumentScope, quizRequest, makeSourceQuiz } = require('../rag');
+const { CHUNK_SIZE, chunkText, isHeadingLine, cosineSimilarity, retrieveChunks, questionHasEvidence, resolveDocumentScope, isFollowup, quizRequest, makeSourceQuiz } = require('../rag');
 const { documentAnswer } = require('../document-answers');
 const { renderPageText } = require('../pdf-text');
 
@@ -120,7 +120,22 @@ test('long documents are chunked without losing their ends', () => {
     const chunks = chunkText(content);
     assert.ok(chunks.length > 1);
     assert.ok(chunks.at(-1).endsWith('final sentence'));
-    assert.ok(chunks.every(chunk => chunk.length <= 1400));
+    assert.ok(chunks.every(chunk => chunk.length <= CHUNK_SIZE));
+});
+
+test('chunking keeps related sentences together and prefers section boundaries', () => {
+    assert.equal(isHeadingLine('1.2 Introduction'), true);
+    assert.equal(isHeadingLine('CHAPTER TWO'), true);
+    assert.equal(isHeadingLine('Results and Discussion'), false);
+    assert.equal(isHeadingLine('This is a normal sentence.'), false);
+    // A long sentence run should split at sentence punctuation, not mid-word.
+    const paragraph = 'First sentence has several words. '.repeat(45) + 'Last sentence has several words.';
+    const chunks = chunkText(paragraph);
+    assert.ok(chunks.length > 1);
+    for (const chunk of chunks) {
+        assert.ok(chunk.length <= CHUNK_SIZE);
+        assert.ok(chunk === chunk.trim());
+    }
 });
 
 test('retrieval ranks local vectors and respects focused PDF names', () => {
@@ -133,4 +148,16 @@ test('retrieval ranks local vectors and respects focused PDF names', () => {
     assert.equal(cosineSimilarity([1, 0], [1, 0]), 1);
     assert.deepEqual(retrieveChunks(index, ['b.pdf'], [1, 0]).map(chunk => chunk.text), ['beta']);
     assert.deepEqual(retrieveChunks(index, ['a.pdf', 'b.pdf'], [1, 0]).map(chunk => chunk.text), ['alpha', 'beta']);
+});
+
+test('follow-up phrases resolve against the previous exchange, not as new questions', () => {
+    assert.equal(isFollowup('Give me three examples.'), true);
+    assert.equal(isFollowup('explain that'), true);
+    assert.equal(isFollowup('Can you rephrase it?'), true);
+    assert.equal(isFollowup('tell me more'), true);
+    assert.equal(isFollowup('what about the examples?'), true);
+    assert.equal(isFollowup('What is an operating system?'), false);
+    assert.equal(isFollowup('List the causes of the war'), false);
+    assert.equal(isFollowup('give me examples of operating systems'), false);
+    assert.equal(isFollowup('What are three examples of osmosis?'), false);
 });

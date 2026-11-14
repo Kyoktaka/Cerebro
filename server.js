@@ -17,8 +17,9 @@ const {
     installedModel,
     embedTexts
 } = require('./local-ai');
-const { resolveDocumentScope } = require('./rag');
+const { resolveDocumentScope, isFollowup } = require('./rag');
 const { queryVariants, choosePassages } = require('./retrieval');
+const { rankByKeywords } = require('./hybrid');
 const { isDocumentOverview, selectedOverviewChunks, sourceOverview } = require('./overview');
 const { modelCaller, tutorAnswer, review, passages, location } = require('./tutor');
 const { studyRequest, buildStudy, studySet, advanceQuiz, questionAt, shortfall } = require('./study');
@@ -776,7 +777,7 @@ app.post('/api/chat', async (req, res) => {
             const selected = index.chunks.filter(c => scope.names.includes(c.pdfName));
             if (!selected.length) return respond('No readable passages were available. Try a text-based PDF or OCR.');
             const previous = conversation?.messages?.at(-1);
-            const followup = /^(?:(?:can|could) you )?(?:(?:explain|simplify|rephrase) (?:that|it)|(?:give me |show me )?an example|what about (?:it|its|the)|(?:make|say) (?:it|that)|tell me more|what is its|what is the difference between them)/i.test(scope.query);
+            const followup = isFollowup(scope.query);
             const sameScope = previous?.topic && JSON.stringify(previous.scope) === JSON.stringify(scope.names);
             if (followup && !sameScope) return respond('Which term or passage would you like me to explain?');
             const history = followup ? { question: previous.topic, answer: previous.content.slice(0, 1500) } : undefined;
@@ -784,7 +785,7 @@ app.post('/api/chat', async (req, res) => {
             const query = [history?.question, scope.query, variants].filter(Boolean).join(' ');
             const [vector] = await embedTexts([query], OLLAMA_EMBED_MODEL);
             const comparison = /\b(compare|contrast|difference|different|similarities|differ|versus|vs)\b/i.test(message);
-            const ranked = choosePassages(selected, scope.names, vector, comparison);
+            const ranked = choosePassages(selected, scope.names, vector, comparison, scope.query);
             if (settings) {
                 if (!Number.isSafeInteger(settings.count) || settings.count < 1 || settings.count > 100)
                     return respond('Choose between 1 and 100 items per study set.');
@@ -818,7 +819,17 @@ app.post('/api/chat', async (req, res) => {
                 : [];
             const context = overviewPages.length ? overviewPages : ranked;
             const request = scope.query === 'summarize' && !/summari[sz]e/i.test(message) ? 'Summarize ' + message : message;
-            const answer = await tutorAnswer(call, request, context, history, comparison || overview ? scope.names : []);
+            let answer = await tutorAnswer(call, request, context, history, comparison || overview ? scope.names : []);
+            // Progressive fallback: when a targeted question gets no supported
+            // answer from the primary hybrid retrieval, broaden to keyword-based
+            // recall before concluding the document lacks the information. This
+            // is a single bounded extra attempt, not an unbounded loop.
+            if (!answer && !overview && !comparison) {
+                const broader = rankByKeywords(selected, scope.names, scope.query);
+                if (broader.some(chunk => !context.some(prev => prev.pdfName === chunk.pdfName && prev.text === chunk.text))) {
+                    answer = await tutorAnswer(call, request, broader, history, []);
+                }
+            }
             // A rejected generative summary must not turn a readable PDF into
             // "unsupported". Offer strictly extractive, page-cited passages.
             const fallback = overview && !answer?.text ? sourceOverview(context, scope.names) : null;

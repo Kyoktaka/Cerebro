@@ -9,7 +9,11 @@ function isDocumentOverview(request) {
     // targeted retrieval request, even when it starts with "summarize".
     if (/\b(?:page\s+\d+|chapter\s+\d+|section\s+\d+)\b/i.test(query)) return false;
     if (/^\s*(?:summari[sz]e|explain|give (?:me )?an? overview of)\s+(?:how|why|what|when|where)\b/i.test(query)) return false;
-    const summaryStart = query.match(/^(?:please\s+)?summari[sz]e\s+(.+)$/i);
+    // A request that names a specific topic is a targeted summary, not a
+    // document-wide one. Accept both "summarize X" and the conversational
+    // "give me a summary about/of/on X" phrasings so "summary about quantum
+    // physics" stays targeted instead of sweeping the whole document.
+    const summaryStart = query.match(/^(?:please\s+|can you\s+|could you\s+)?(?:summari[sz]e|(?:give\s+me\s+)?(?:a\s+|the\s+)?summary(?:\s+(?:of|about|on))?)\s+(.+)$/i);
     if (summaryStart) {
         const genericWords = new Set(['the', 'this', 'these', 'my', 'our', 'all', 'uploaded',
             'focused', 'selected', 'pdf', 'pdfs', 'file', 'files', 'document', 'documents',

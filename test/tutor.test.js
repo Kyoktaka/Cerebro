@@ -79,3 +79,10 @@ test('page offsets survive a blank page and document-like markers inside extract
     assert.deepEqual(documentChunks(doc).map(c => [c.page, c.text]), [[1,first],[3,second]]);
     assert.equal(documentChunks({ name: 'legacy.pdf', text })[0].page, undefined);
 });
+
+test('document chunks carry a best-effort section heading', () => {
+    const chunks = documentChunks({ name: 'n.pdf', text: 'CHAPTER TWO\n\nMemory management handles RAM allocation. It keeps track of free pages.' });
+    assert.equal(chunks[0].heading, 'CHAPTER TWO');
+    const plain = documentChunks({ name: 'p.pdf', text: 'A normal paragraph without headings here.' });
+    assert.equal(plain[0].heading, undefined);
+});
