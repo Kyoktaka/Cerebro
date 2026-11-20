@@ -3,40 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light dark">
-    <title>Create an account | Cerebro</title>
+    <meta name="color-scheme" content="dark light">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
     <script src="js/theme.js"></script>
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/ultracave.css">
+    <link rel="stylesheet" href="css/cerebro.css">
+    <title>Create an account · Cerebro</title>
 </head>
-<body class="auth-page">
+<body>
     <a class="skip-link" href="#main">Skip to registration</a>
-    <header class="auth-topbar">
-        <a href="index.html" class="auth-brand"><span class="logo-mark"><i class="fas fa-brain" aria-hidden="true"></i></span><span>Cerebro</span></a>
-        <button class="theme-toggle" type="button" data-theme-toggle><i class="fas fa-moon" aria-hidden="true"></i><span data-theme-label>Dark mode</span></button>
+    <header class="site-header">
+        <a href="index.html" class="brand"><svg class="brand-mark" viewBox="0 0 26 26" aria-hidden="true" focusable="false"><path d="M7 2.75h9.25L21 7.5v15.25H7a2 2 0 0 1-2-2V4.75a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/><path d="M16 3v4.75h4.75" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/><rect x="8.5" y="11.25" width="9" height="3.5" rx="1" fill="var(--mark-line)"/><path d="M8.75 18h7" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg> Cerebro</a>
+        <nav class="site-nav" aria-label="Main"><button class="icon-button" type="button" data-theme-toggle aria-label="Switch theme"><i class="fas fa-moon" aria-hidden="true"></i></button></nav>
     </header>
-    <main class="auth-wrapper" id="main">
-        <div class="auth-container">
-            <a href="index.html" class="back-home"><i class="fas fa-arrow-left" aria-hidden="true"></i> Home</a>
-            <section class="auth-card">
-                <div class="auth-header"><h1>Create your account</h1><p>Start studying with Cerebro.</p></div>
-                <div id="errorMessage" class="error-message" role="alert" aria-live="assertive"></div>
-                <form id="registerForm">
-                    <div class="row">
-                        <div class="input-group"><label for="firstName">First name</label><input type="text" id="firstName" name="firstName" autocomplete="given-name" required></div>
-                        <div class="input-group"><label for="lastName">Last name (username)</label><input type="text" id="lastName" name="lastName" autocomplete="family-name" required></div>
-                    </div>
-                    <p class="username-note">If your last name is common, add an initial to make the username unique.</p>
-                    <div class="input-group"><label for="email">Email address</label><input type="email" id="email" name="email" autocomplete="email" required></div>
-                    <div class="input-group"><label for="password">Password</label><div class="password-field"><input type="password" id="password" name="password" autocomplete="new-password" minlength="6" required><button type="button" class="toggle-password" data-target="password" aria-label="Show password" aria-pressed="false">Show</button></div></div>
-                    <div class="input-group"><label for="confirmPassword">Confirm password</label><div class="password-field"><input type="password" id="confirmPassword" name="confirmPassword" autocomplete="new-password" minlength="6" required><button type="button" class="toggle-password" data-target="confirmPassword" aria-label="Show password" aria-pressed="false">Show</button></div></div>
-                    <button type="submit" class="btn-auth">Create account</button>
-                </form>
-                <p class="auth-security-note">Use a password you do not use elsewhere.</p>
-                <p class="auth-footer">Already have an account? <a href="login.html">Sign in</a></p>
-            </section>
-        </div>
+    <main class="auth-main" id="main">
+        <section class="auth-panel" aria-labelledby="registerTitle">
+            <h1 id="registerTitle">Create your account</h1>
+            <p>Your chats and PDFs are saved on this computer.</p>
+            <form id="registerForm" class="auth-form" novalidate>
+                <div id="errorMessage" class="form-message is-error" role="alert"></div>
+                <div class="field-row">
+                    <div class="field"><label for="firstName">First name</label><input type="text" id="firstName" name="firstName" autocomplete="given-name" required></div>
+                    <div class="field"><label for="lastName">Last name</label><input type="text" id="lastName" name="lastName" autocomplete="family-name" required aria-describedby="usernameHint"></div>
+                </div>
+                <p class="field-hint" id="usernameHint">Your last name is your username. If it's common, add an initial, for example SantosJ.</p>
+                <div class="field"><label for="email">Email</label><input type="email" id="email" name="email" autocomplete="email" required></div>
+                <div class="field"><label for="password">Password</label><div class="password-field"><input type="password" id="password" name="password" autocomplete="new-password" minlength="6" required aria-describedby="passwordHint"><button type="button" class="text-button toggle-password" data-target="password" aria-label="Show password" aria-pressed="false">Show</button></div><p class="field-hint" id="passwordHint">At least 6 characters. Don't reuse a password from another site.</p></div>
+                <div class="field"><label for="confirmPassword">Confirm password</label><div class="password-field"><input type="password" id="confirmPassword" name="confirmPassword" autocomplete="new-password" minlength="6" required><button type="button" class="text-button toggle-password" data-target="confirmPassword" aria-label="Show password" aria-pressed="false">Show</button></div></div>
+                <button type="submit" class="solid-button">Create account</button>
+            </form>
+            <p class="auth-alt">Already have an account? <a href="login.html">Sign in</a></p>
+        </section>
     </main>
     <script src="js/auth.js"></script>
 </body>

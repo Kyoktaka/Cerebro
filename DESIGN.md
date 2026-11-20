@@ -1,15 +1,50 @@
-# Cerebro interface direction
+# Cerebro interface
 
-Cerebro is a conversation-first, local PDF study assistant.
+Cerebro is a reading desk for course PDFs: a column for reading answers, the chats you have had, and the documents you are studying with their contents.
 
-- Starting screen: one primary prompt with only the upload, quiz, flashcard and summary shortcuts.
-- Authentication: compact, centered form using the existing username/password API. No nonworking Google sign-in control.
-- Workspace: compact sidebar with search, new chat, document access, study tools and existing account actions.
-- Conversation: centered readable answers, restrained message treatment, safe Markdown and source citations.
-- PDF reading: source chips for the active documents; cited pages open in a side viewer on wide screens or full-screen on mobile, with native PDF search and zoom.
-- Study: shortcut prompts reuse the existing reviewed quiz/flashcard/summary system, including its interactive one-question-at-a-time quiz flow.
-- Colors: neutral light and charcoal dark surfaces with one restrained warm accent. Dark backgrounds use #212121 and #171717 for the sidebar.
-- Motion: only short transitions, with reduced-motion support. Avoid marketing cards, decorative stats and fake interactions.
-- Constraints: preserve authentication, chat streaming, local Ollama model selection, PDF upload and retrieval, anti-hallucination checks, answer keys and saved conversation history.
+## Provenance colors
 
-The interface is HTML, CSS and JavaScript. Business logic and API contracts remain in the existing Node server.
+Three colors carry meaning and are not used for decoration:
+
+| Token | Meaning | Where |
+| --- | --- | --- |
+| `--ink` | Cerebro's actions | Buttons, selected topic, takeaways, focus rings |
+| `--mark` / `--mark-line` | Text from your PDF | Page tabs, evidence quotes in sources and quiz feedback |
+| `--pencil` | Explanation not from your PDF | The rule and label of "Beyond your PDF" |
+
+Correct and wrong (`--good`, `--bad`) appear only in quiz feedback and destructive actions.
+
+## Themes
+
+- Dark is the default: true black `#000000` page, `#0c0e11` panels, `#161a1f` raised surfaces, separation by surface tone rather than borders.
+- Light: cool paper `#f4f5f7`, white panels, the same structure.
+- Both themes define the same token set (enforced by `test/frontend-contract.test.js`).
+
+## Type
+
+- Atkinson Hyperlegible Next for the interface: designed for legibility, distinct letterforms.
+- Literata for answers, questions and flashcards: a typeface made for long reading on screens. Answers are set at 17px with a 68-character measure.
+- Both are bundled in `public/fonts` so the app works offline.
+
+## Layout
+
+- Workspace: chats rail (264px) · reading desk (max 760px column) · sources panel (312px). The PDF viewer takes the sources column when a page tab is opened.
+- Below 1180px the sources panel becomes a drawer; below 860px the rail does too, and the viewer goes full screen.
+- The sources panel lists PDFs with tick boxes and their contents as a table of contents with dotted leaders and page numbers.
+- Above the question box, a context line shows which PDFs and which topic the next question uses.
+
+## Rules
+
+- No borders around navigation items, no cards around messages, no gradients or glows.
+- Numbers appear only where content is a sequence (quiz questions, steps).
+- Motion only answers an action (drawers, the working indicator); reduced motion is respected.
+- Empty states say what to do next; errors say what happened and how to fix it.
+- Copy uses sentence case and plain verbs; the same action keeps the same name everywhere.
+
+## Files
+
+- `css/cerebro.css`: tokens, base elements, public pages, answer typography.
+- `css/workspace.css`: the chat workspace, study blocks, dialogs, responsive rules.
+- `js/markdown.js`: escaped Markdown, page tabs, takeaway and "Beyond your PDF" sections, study-block placeholders.
+- `js/blocks.js`: interactive sources, quizzes, flashcards and practice controls.
+- `js/chat.js`: workspace controller (chats, sources, streaming, viewer, settings).
