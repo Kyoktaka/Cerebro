@@ -27,7 +27,7 @@ function documentAnswer(question, documents) {
 }
 
 function subjectTable(text) {
-    const lines = text.split(/\r?\n/);
+    const lines = text.split(/\r?\n/).map(line => line.replace(/\s*\|\s*/g, ' '));
     const rows = new Map();
     let inTable = false;
     let reportedUnits = null;

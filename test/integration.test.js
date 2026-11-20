@@ -6,7 +6,8 @@ const { spawn } = require('node:child_process');
 const { once } = require('node:events');
 const { setTimeout: delay } = require('node:timers/promises');
 const { server: ollama, requests, embedRequests, setChatReply } = require('./mock-ollama');
-const { makePdf } = require('./pdf-fixture');
+const { makeDocument } = require('./pdf-fixture');
+const corpus = require('./fixtures/corpus');
 
 function listen(server) {
     return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
@@ -71,14 +72,19 @@ async function streamChat(base, body) {
     });
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type'), /application\/x-ndjson/);
-    return (await response.text()).trim().split('\n').map(line => JSON.parse(line));
+    const events = (await response.text()).trim().split('\n').map(line => JSON.parse(line));
+    assert.notEqual(events.at(-1).type, 'error', JSON.stringify(events.at(-1)));
+    return events;
 }
 
-test('local model discovery, grounded PDF responses, and persisted index', async () => {
+const block = (answer, type) => JSON.parse(answer.match(new RegExp('```cerebro-' + type + '\\n([\\s\\S]*?)\\n```'))[1]);
+
+test('PDF workspace: upload, grounded answers, follow-ups, scope, study tools, persistence', async () => {
     const ollamaPort = await listen(ollama);
     const port = await unusedPort();
     const base = `http://127.0.0.1:${port}`;
     const lastName = `LocalTest${Date.now()}`;
+    const computerPdf = makeDocument(corpus.computer);
     let app;
     let sessionId;
     try {
@@ -89,155 +95,115 @@ test('local model discovery, grounded PDF responses, and persisted index', async
         assert.equal(models.embeddingAvailable, true);
         assert.equal((await fetch(`${base}/vendor/fontawesome/css/all.min.css`)).status, 200);
 
-        const registration = await post(base, '/api/auth/register', {
-            firstName: 'Local', lastName, email: `${lastName}@example.test`, password: 'test-only-password'
-        });
-        assert.equal(registration.status, 200);
-        const login = await post(base, '/api/auth/login', { username: lastName, password: 'test-only-password' });
-        sessionId = login.body.sessionId;
+        assert.equal((await post(base, '/api/auth/register', { firstName: 'Local', lastName, email: `${lastName}@example.test`, password: 'test-only-password' })).status, 200);
+        sessionId = (await post(base, '/api/auth/login', { username: lastName, password: 'test-only-password' })).body.sessionId;
         assert.ok(sessionId);
-        const created = await post(base, '/api/conversations/create', { sessionId });
-        const conversationId = created.body.conversationId;
+        const conversationId = (await post(base, '/api/conversations/create', { sessionId })).body.conversationId;
         assert.ok(conversationId);
 
+        const callsBefore = requests.length;
         const general = await streamChat(base, { message: 'Hello', sessionId, conversationId, model: 'llama3.2:latest' });
-        assert.ok(general.some(event => event.type === 'delta'));
         assert.equal(general.at(-1).mode, 'normal');
         assert.match(general.at(-1).answer, /Upload a PDF/);
-        const callsBeforeGeneral = requests.length;
-        const qwen = await streamChat(base, { message: 'Explain a loop', sessionId, conversationId, model: 'qwen2.5-coder:3b' });
-        assert.match(qwen.at(-1).answer, /Upload a PDF/);
-        assert.equal(requests.length, callsBeforeGeneral);
+        assert.equal(requests.length, callsBefore, 'no model call without a PDF');
 
         const form = new FormData();
-        form.append('files', new Blob([makePdf('Alpha document explains cells.')], { type: 'application/pdf' }), 'alpha.pdf');
-        form.append('files', new Blob([makePdf('Beta document explains plants.')], { type: 'application/pdf' }), 'beta.pdf');
+        form.append('files', new Blob([computerPdf], { type: 'application/pdf' }), 'computer.pdf');
+        form.append('files', new Blob([makeDocument(corpus.networking)], { type: 'application/pdf' }), 'networking.pdf');
+        form.append('files', new Blob([makeDocument(corpus.scanned)], { type: 'application/pdf' }), 'scanned.pdf');
         form.append('sessionId', sessionId);
         form.append('conversationId', conversationId);
         const uploadResponse = await fetch(`${base}/api/upload`, { method: 'POST', body: form });
         const upload = await uploadResponse.json();
         assert.equal(uploadResponse.status, 200, `${JSON.stringify(upload)}\n${app.getOutput()}`);
-        assert.deepEqual(upload.pdfNames, ['alpha.pdf', 'beta.pdf']);
-        assert.deepEqual(upload.extractedPages.map(item => item.pages), [1, 1]);
-        assert.ok(upload.extractedPages.every(item => item.readablePages === 1));
+        assert.deepEqual(upload.pdfNames, ['computer.pdf', 'networking.pdf', 'scanned.pdf']);
+        assert.deepEqual(upload.extractedPages.map(item => item.pages), [4, 5, 3]);
+        assert.deepEqual(upload.extractedPages[2].imagePages, [2, 3]);
 
-        // Broad questions should work across all focused PDFs without
-        // requiring literal words like "main concepts" in their passages.
-        const overview = await streamChat(base, {
-            message: 'Explain the main concepts from the focused documents in simple language.',
-            sessionId, conversationId, model: 'llama3.2'
-        });
-        assert.match(overview.at(-1).answer, /Alpha document explains cells/);
-        assert.match(overview.at(-1).answer, /Beta document explains plants/);
-        assert.doesNotMatch(overview.at(-1).answer, /cannot answer that question/i);
-        setChatReply('unverified model claim');
-        const safelyGrounded = await streamChat(base, {
-            message: 'Summarize the focused PDF documents.', sessionId, conversationId, model: 'llama3.2'
-        });
-        assert.doesNotMatch(safelyGrounded.at(-1).answer, /unverified model claim/);
-        assert.match(safelyGrounded.at(-1).answer, /Alpha document explains cells/);
-        assert.match(safelyGrounded.at(-1).answer, /Beta document explains plants/);
+        const outline = await (await fetch(`${base}/api/conversations/${sessionId}/${conversationId}/outline`)).json();
+        const networkSections = outline.documents.find(doc => doc.name === 'networking.pdf').sections.map(section => section.title);
+        assert.ok(networkSections.includes('Network Topologies') && networkSections.includes('Star Topology'));
+
+        await post(base, `/api/conversations/${sessionId}/focus-pdf`, { conversationId, pdfNames: ['computer.pdf', 'networking.pdf'] });
+
+        const ram = await streamChat(base, { message: 'What is RAM?', sessionId, conversationId, model: 'llama3.2' });
+        assert.ok(ram.some(event => event.type === 'status'), 'status events stream while working');
+        assert.ok(ram.some(event => event.type === 'draft'), 'draft text streams before verification');
+        const ramDone = ram.at(-1);
+        assert.equal(ramDone.mode, 'answer');
+        assert.match(ramDone.answer, /main working memory/);
+        const citation = ramDone.answer.match(/\[computer\.pdf, p\. 2\]\(cerebro:([a-f0-9]{64}):2\)/);
+        assert.ok(citation, ramDone.answer);
+        assert.ok(block(ramDone.answer, 'sources').some(source => source.doc === 'computer.pdf' && source.page === 2));
+        const fetchSource = () => fetch(base + '/api/source', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId, conversationId, digest: citation[1] }) });
+        assert.deepEqual(Buffer.from(await (await fetchSource()).arrayBuffer()), computerPdf);
+
+        const topologies = await streamChat(base, { message: 'Explain network topologies.', sessionId, conversationId });
+        assert.equal(topologies.at(-1).topic.label, 'Network Topologies');
+        const examples = await streamChat(base, { message: 'Give me examples', sessionId, conversationId });
+        assert.equal(examples.at(-1).mode, 'answer');
+        assert.match(examples.at(-1).answer, /networking\.pdf/);
+        assert.match(examples.at(-1).answer, /\*\*Beyond your PDF\*\*/);
+        assert.equal(examples.at(-1).topic.label, 'Network Topologies');
+        const restoredContext = await (await fetch(`${base}/api/conversations/${sessionId}/${conversationId}`)).json();
+        assert.equal(restoredContext.context.activeTopic.label, 'Network Topologies');
+
+        const unrelated = await streamChat(base, { message: 'What is photosynthesis?', sessionId, conversationId });
+        assert.equal(unrelated.at(-1).mode, 'unrelated');
+        assert.match(unrelated.at(-1).answer, /couldn't find that/);
+
+        setChatReply('Networks were invented in 1969 by Vint Cerf [1]. Plants grow toward light [9].');
+        const fabricated = await streamChat(base, { message: 'Who invented networks?', sessionId, conversationId });
+        assert.doesNotMatch(JSON.stringify(fabricated.at(-1)), /1969|Vint Cerf|Plants grow/);
         setChatReply(null);
-
 
         const invalid = await post(base, '/api/chat', { message: 'Hello', sessionId, conversationId, model: 'missing-model' });
         assert.equal(invalid.status, 422);
         assert.match(invalid.body.error, /ollama pull missing-model/);
 
-        const callsBeforeStudy = requests.length;
-        const scoped = await streamChat(base, { message: 'create 10 quiz questions fill-in-the-blank from alpha.pdf', sessionId, conversationId, model: 'llama3.2' });
-        assert.match(scoped.at(-1).answer, /1 of 10 requested/);
-        assert.match(scoped.at(-1).answer, /alpha\.pdf/);
-        assert.doesNotMatch(scoped.at(-1).answer, /beta\.pdf/);
-        assert.ok(requests.slice(callsBeforeStudy).some(request => request.format.properties.decision));
-        const both = await streamChat(base, { message: 'fill-in-the-blank quiz from alpha.pdf and beta.pdf', sessionId, conversationId, model: 'llama3.2' });
-        assert.match(both.at(-1).answer, /alpha\.pdf/);
-        assert.match(both.at(-1).answer, /beta\.pdf/);
-        const scopedQuestion = await streamChat(base, { message: 'What does alpha explain in alpha.pdf?', sessionId, conversationId, model: 'llama3.2' });
-        assert.match(scopedQuestion.at(-1).answer, /Alpha document explains cells/);
-        assert.doesNotMatch(scopedQuestion.at(-1).answer, /beta\.pdf/);
-        const citation = scopedQuestion.at(-1).answer.match(/p\. 1\]\(cerebro:([a-f0-9]{64}):1\)/);
-        assert.ok(citation);
-        const fetchSource = () => fetch(base + '/api/source', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId, conversationId, digest: citation[1] }) });
-        assert.deepEqual(Buffer.from(await (await fetchSource()).arrayBuffer()), makePdf('Alpha document explains cells.'));
-        const practice = await streamChat(base, { message: 'Interactive fill-in-the-blank quiz from alpha.pdf', sessionId, conversationId });
-        assert.match(practice.at(-1).answer, /Question 1 of 1/);
-        assert.doesNotMatch(practice.at(-1).answer, /Answer key|explains cells/);
-        const hint = await streamChat(base, { message: 'hint', sessionId, conversationId });
-        assert.match(hint.at(-1).answer, /Recall the passage/);
-        const retry = await streamChat(base, { message: 'wrong', sessionId, conversationId });
-        assert.match(retry.at(-1).answer, /Try again/);
-        const report = await streamChat(base, { message: 'skip', sessionId, conversationId });
-        assert.match(report.at(-1).answer, /First-attempt score: 0\/1/);
-        assert.match(report.at(-1).answer, /Review these sections/);
-        const missing = await streamChat(base, { message: 'quiz from missing.pdf', sessionId, conversationId, model: 'llama3.2' });
-        assert.match(missing.at(-1).answer, /not available/);
+        const quiz = await streamChat(base, { message: 'Make a 3 question quiz about network topologies', sessionId, conversationId });
+        const quizSet = block(quiz.at(-1).answer, 'quiz');
+        assert.ok(quizSet.items.length >= 1);
+        assert.ok(quizSet.items.every(item => item.source.doc === 'networking.pdf' && item.choices.length === 4 && item.choices[item.correct] === item.answer));
+        const cards = await streamChat(base, { message: 'Create flashcards about storage devices', sessionId, conversationId });
+        const deck = block(cards.at(-1).answer, 'flashcards');
+        assert.ok(deck.items.length >= 1 && deck.items.every(card => card.front && card.back && card.source.doc === 'computer.pdf'));
 
-        const focus = await post(base, `/api/conversations/${sessionId}/focus-pdf`, {
-            conversationId, pdfNames: ['beta.pdf']
-        });
+        const practice = await streamChat(base, { message: 'Quiz me on network topologies, one question at a time', sessionId, conversationId });
+        assert.equal(practice.at(-1).mode, 'practice');
+        assert.match(practice.at(-1).answer, /Question 1 of (\d+)/);
+        const total = Number(practice.at(-1).answer.match(/Question 1 of (\d+)/)[1]);
+        assert.match((await streamChat(base, { message: 'hint', sessionId, conversationId })).at(-1).answer, /Hint:/);
+        assert.match((await streamChat(base, { message: 'banana', sessionId, conversationId })).at(-1).answer, /option letter/);
+        let last;
+        for (let i = 0; i < total; i++) last = await streamChat(base, { message: 'skip', sessionId, conversationId });
+        assert.match(last.at(-1).answer, new RegExp(`First-try score: 0 of ${total}`));
+
+        assert.match((await streamChat(base, { message: 'quiz from missing.pdf', sessionId, conversationId })).at(-1).answer, /not available/);
+
+        const focus = await post(base, `/api/conversations/${sessionId}/focus-pdf`, { conversationId, pdfNames: ['networking.pdf'] });
         assert.equal(focus.status, 200);
-        assert.equal((await fetchSource()).status, 404);
-        assert.deepEqual(focus.body.pdfNames, ['alpha.pdf', 'beta.pdf']);
-        assert.deepEqual(focus.body.activePdfNames, ['beta.pdf']);
-        const focusedSummary = await streamChat(base, {
-            message: 'Summarize the focused PDF documents.', sessionId, conversationId, model: 'llama3.2'
-        });
-        assert.match(focusedSummary.at(-1).answer, /Beta document explains plants/);
-        assert.doesNotMatch(focusedSummary.at(-1).answer, /Alpha document explains cells/);
-
-        const unfocused = await streamChat(base, { message: 'quiz from alpha.pdf', sessionId, conversationId, model: 'llama3.2' });
-        assert.match(unfocused.at(-1).answer, /Select the named PDF/);
-        assert.doesNotMatch(unfocused.at(-1).answer, /beta\.pdf/);
-        const study = await streamChat(base, { message: 'What does beta explain?', sessionId, conversationId, model: 'llama3.2' });
-        assert.equal(study.at(-1).mode, 'study');
-        const studyAnswer = study.at(-1).answer;
-        assert.match(studyAnswer, /beta\.pdf/);
-        assert.doesNotMatch(studyAnswer, /alpha\.pdf/);
-        assert.match(studyAnswer, /Beta document explains plants/);
-        assert.doesNotMatch(studyAnswer, /Alpha document explains cells/);
-        const qwenStudy = await streamChat(base, { message: 'What does beta explain?', sessionId, conversationId, model: 'qwen2.5-coder:3b' });
-        assert.match(qwenStudy.at(-1).answer, /Beta document explains plants/);
-        assert.equal(requests.at(-1).model, 'qwen2.5-coder:3b');
-        assert.equal(requests.at(-1).format.type, 'object');
-        assert.deepEqual(requests.at(-2).format.properties.evidence.items.required, ['id', 'quote']);
-        assert.deepEqual(requests.at(-1).format.required, ['decision', 'scores', 'feedback']);
-        assert.equal(requests.at(-1).options.temperature, 0);
-        for (const reply of [
-            'fabricated response',
-            JSON.stringify({ evidence: [{ source: 'beta.pdf', quote: 'Beta document invented something fictional.' }] }),
-            JSON.stringify({ evidence: [{ source: 'alpha.pdf', quote: 'Beta document explains plants.' }] })
-        ]) {
-            setChatReply(reply);
-            const blocked = await streamChat(base, { message: 'What does beta explain?', sessionId, conversationId, model: 'llama3.2' });
-            assert.match(blocked.at(-1).answer, /cannot answer/i);
-            assert.doesNotMatch(JSON.stringify(blocked), /fabricated|fictional/);
-        }
-        setChatReply(null);
-        const unrelated = await streamChat(base, { message: 'What is science?', sessionId, conversationId, model: 'llama3.2' });
-        assert.match(unrelated.at(-1).answer, /cannot answer/i);
-        const quiz = await streamChat(base, { message: 'create me a quiz', sessionId, conversationId, model: 'llama3.2' });
-        assert.match(quiz.at(-1).answer, /could not find suitable passages/);
-        const unrelatedQuiz = await streamChat(base, { message: 'create a quiz about science', sessionId, conversationId, model: 'llama3.2' });
-        assert.match(unrelatedQuiz.at(-1).answer, /could not find suitable passages/i);
+        assert.deepEqual(focus.body.activePdfNames, ['networking.pdf']);
+        assert.equal((await fetchSource()).status, 404, 'unselected PDFs are not served');
+        const isolated = await streamChat(base, { message: 'What is RAM?', sessionId, conversationId });
+        assert.doesNotMatch(isolated.at(-1).answer, /computer\.pdf|main working memory/);
+        assert.match((await streamChat(base, { message: 'Summarize computer.pdf', sessionId, conversationId })).at(-1).answer, /Select the named PDF/);
 
         await stopCerebro(app);
         app = await startCerebro(port, ollamaPort);
-        const secondLogin = await post(base, '/api/auth/login', { username: lastName, password: 'test-only-password' });
-        sessionId = secondLogin.body.sessionId;
+        sessionId = (await post(base, '/api/auth/login', { username: lastName, password: 'test-only-password' })).body.sessionId;
         const restored = await (await fetch(`${base}/api/conversations/${sessionId}/${conversationId}`)).json();
-        assert.deepEqual(restored.activePdfNames, ['beta.pdf']);
+        assert.deepEqual(restored.activePdfNames, ['networking.pdf']);
         const embedsBefore = embedRequests.length;
-        const resumed = await streamChat(base, { message: 'Explain beta again', sessionId, conversationId, model: 'llama3.2' });
-        assert.equal(resumed.at(-1).mode, 'study');
-        assert.equal(embedRequests.length - embedsBefore, 1);
+        const resumed = await streamChat(base, { message: 'Explain star topology', sessionId, conversationId });
+        assert.equal(resumed.at(-1).mode, 'answer');
+        assert.match(resumed.at(-1).answer, /central switch/);
+        assert.equal(embedRequests.length - embedsBefore, 1, 'the saved index is reused; only the question is embedded');
 
-        const cleared = await post(base, `/api/conversations/${sessionId}/clear-pdfs`, { conversationId });
-        assert.equal(cleared.status, 200);
-        const normalAgain = await streamChat(base, { message: 'Hello again', sessionId, conversationId, model: 'llama3.2' });
+        assert.equal((await post(base, `/api/conversations/${sessionId}/clear-pdfs`, { conversationId })).status, 200);
+        const normalAgain = await streamChat(base, { message: 'Hello again', sessionId, conversationId });
         assert.equal(normalAgain.at(-1).mode, 'normal');
-        assert.match(normalAgain.at(-1).answer, /Upload a PDF/);
         await post(base, '/api/auth/delete-account', { sessionId });
     } finally {
         setChatReply(null);

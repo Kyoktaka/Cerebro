@@ -1,8 +1,13 @@
 const OLLAMA_BASE_URL = (process.env.OLLAMA_BASE_URL || 'http://localhost:11434').replace(/\/+$/, '');
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2';
 const OLLAMA_EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text';
-const configuredContext = Number.parseInt(process.env.OLLAMA_NUM_CTX || '8192', 10);
-const OLLAMA_NUM_CTX = Number.isInteger(configuredContext) && configuredContext > 0 ? configuredContext : 8192;
+// Accept human formatting like "32,768" or "32 768" so a stray comma cannot
+// silently collapse the context window to the first two digits (32).
+function parseContext(value) {
+    const parsed = Number.parseInt(String(value || '').replace(/[^\d]/g, ''), 10);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : 8192;
+}
+const OLLAMA_NUM_CTX = parseContext(process.env.OLLAMA_NUM_CTX);
 
 class OllamaError extends Error {
     constructor(message, status = 503) {
@@ -19,7 +24,8 @@ async function request(endpoint, options = {}) {
     let response;
     try {
         response = await fetch(`${OLLAMA_BASE_URL}${endpoint}`, options);
-    } catch {
+    } catch (error) {
+        if (error?.name === 'TimeoutError' || error?.name === 'AbortError') throw error;
         throw new OllamaError(`Cannot reach Ollama at ${OLLAMA_BASE_URL}. Start Ollama and check OLLAMA_BASE_URL.`);
     }
 
@@ -118,13 +124,32 @@ async function embedTexts(texts, model = OLLAMA_EMBED_MODEL) {
     return all;
 }
 
-async function openChat(model, messages, stream, signal, format) {
-    return request('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, messages, stream, ...(format ? { format } : {}), options: { num_ctx: OLLAMA_NUM_CTX, ...(format ? { temperature: 0 } : {}) } }),
-        signal
-    });
+const timeoutSetting = Number.parseInt(process.env.CEREBRO_LLM_TIMEOUT_MS || '', 10);
+const OLLAMA_TIMEOUT_MS = Number.isInteger(timeoutSetting) && timeoutSetting >= 10000 ? timeoutSetting : 300000;
+
+function withTimeout(signal, ms) {
+    const timeout = AbortSignal.timeout(ms);
+    if (!signal) return timeout;
+    return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : signal;
+}
+
+async function openChat(model, messages, stream, signal, format, options = {}) {
+    try {
+        return await request('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model, messages, stream, ...(format ? { format } : {}),
+                options: { num_ctx: OLLAMA_NUM_CTX, ...(format ? { temperature: 0 } : {}), ...options }
+            }),
+            signal: withTimeout(signal, OLLAMA_TIMEOUT_MS)
+        });
+    } catch (error) {
+        if (error?.name === 'TimeoutError' || (signal?.aborted === false && error?.name === 'AbortError')) {
+            throw new OllamaError(`The local model took longer than ${Math.round(OLLAMA_TIMEOUT_MS / 1000)} seconds. Try a smaller model or a shorter request.`, 504);
+        }
+        throw error;
+    }
 }
 
 async function readChatStream(response, onDelta) {
@@ -170,6 +195,8 @@ module.exports = {
     OLLAMA_MODEL,
     OLLAMA_EMBED_MODEL,
     OLLAMA_NUM_CTX,
+    OLLAMA_TIMEOUT_MS,
+    parseContext,
     OllamaError,
     modelMatches,
     listModels,

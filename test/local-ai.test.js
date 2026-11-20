@@ -8,8 +8,18 @@ const {
     modelsWithCapability,
     requireCapability,
     embedTexts,
-    readChatStream
+    readChatStream,
+    parseContext
 } = require('../local-ai');
+
+test('context window parsing accepts commas and falls back safely', () => {
+    assert.equal(parseContext('32,768'), 32768);
+    assert.equal(parseContext('32 768'), 32768);
+    assert.equal(parseContext('8192'), 8192);
+    assert.equal(parseContext('0'), 8192);
+    assert.equal(parseContext(''), 8192);
+    assert.equal(parseContext(undefined), 8192);
+});
 
 test('model validation accepts installed tags and rejects missing or cloud models', () => {
     const models = [{ name: 'llama3.2:latest' }, { name: 'qwen2.5-coder:3b' }, { name: 'nomic-embed-text:latest' }];
