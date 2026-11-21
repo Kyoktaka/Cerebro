@@ -1,6 +1,9 @@
 const test = require('node:test');
+const { after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const http = require('node:http');
+const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');
@@ -20,11 +23,16 @@ async function unusedPort() {
     return port;
 }
 
+// The server keeps users, uploads and sessions here, never in the project's own folders.
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cerebro-data-'));
+after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+
 async function startCerebro(port, ollamaPort) {
     const child = spawn(process.execPath, ['server.js'], {
         cwd: path.join(__dirname, '..'),
         env: {
             ...process.env,
+            CEREBRO_DATA_DIR: dataDir,
             HOST: '127.0.0.1',
             PORT: String(port),
             OLLAMA_BASE_URL: `http://127.0.0.1:${ollamaPort}`,
@@ -91,12 +99,28 @@ test('PDF workspace: upload, grounded answers, follow-ups, scope, study tools, p
         app = await startCerebro(port, ollamaPort);
         const models = await (await fetch(`${base}/api/models`)).json();
         assert.equal(models.available, true);
-        assert.deepEqual(models.models.map(model => model.name), ['llama3.2:latest', 'qwen2.5-coder:3b']);
+        assert.deepEqual(models.models.map(model => model.name), ['llama3.2:latest', 'qwen2.5-coder:3b', 'hf.co/unsloth/Qwen3-4B-GGUF:Q4_K_M']);
         assert.equal(models.embeddingAvailable, true);
         assert.equal((await fetch(`${base}/vendor/fontawesome/css/all.min.css`)).status, 200);
 
         assert.equal((await post(base, '/api/auth/register', { firstName: 'Local', lastName, email: `${lastName}@example.test`, password: 'test-only-password' })).status, 200);
         sessionId = (await post(base, '/api/auth/login', { username: lastName, password: 'test-only-password' })).body.sessionId;
+<<<<<<< HEAD
+        const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'users', lastName + '.json'), 'utf8'));
+        assert.match(stored.password, /^scrypt:/, 'passwords are stored hashed');
+        assert.equal((await post(base, '/api/auth/login', { username: lastName, password: 'wrong-password' })).status, 401);
+        assert.equal((await post(base, '/api/auth/forgot-password', { lastName })).status, 404, 'no route reveals a password');
+        const badReset = await post(base, '/api/auth/reset-password', { username: lastName, email: 'someone@else.test', password: 'new-password' });
+        assert.equal(badReset.status, 400);
+        const legacyName = 'Legacy' + Date.now();
+        const legacyFile = path.join(dataDir, 'users', legacyName + '.json');
+        fs.writeFileSync(legacyFile, JSON.stringify({ id: '1', firstName: 'Old', lastName: legacyName, email: 'old@example.test', password: 'plain-pass', conversations: [] }));
+        assert.equal((await post(base, '/api/auth/login', { username: legacyName, password: 'plain-pass' })).status, 200, 'accounts from before hashing still sign in');
+        assert.match(JSON.parse(fs.readFileSync(legacyFile, 'utf8')).password, /^scrypt:/, 'and their password is hashed on that sign-in');
+        assert.equal((await post(base, '/api/auth/reset-password', { username: legacyName, email: 'OLD@example.test', password: 'brand-new' })).status, 200);
+        assert.equal((await post(base, '/api/auth/login', { username: legacyName, password: 'brand-new' })).status, 200);
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         assert.ok(sessionId);
         const conversationId = (await post(base, '/api/conversations/create', { sessionId })).body.conversationId;
         assert.ok(conversationId);
@@ -192,7 +216,11 @@ test('PDF workspace: upload, grounded answers, follow-ups, scope, study tools, p
 
         await stopCerebro(app);
         app = await startCerebro(port, ollamaPort);
+<<<<<<< HEAD
+        // Sign-in survives a server restart (nodemon reloads used to log users out).
+=======
         sessionId = (await post(base, '/api/auth/login', { username: lastName, password: 'test-only-password' })).body.sessionId;
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         const restored = await (await fetch(`${base}/api/conversations/${sessionId}/${conversationId}`)).json();
         assert.deepEqual(restored.activePdfNames, ['networking.pdf']);
         const embedsBefore = embedRequests.length;
@@ -201,6 +229,14 @@ test('PDF workspace: upload, grounded answers, follow-ups, scope, study tools, p
         assert.match(resumed.at(-1).answer, /central switch/);
         assert.equal(embedRequests.length - embedsBefore, 1, 'the saved index is reused; only the question is embedded');
 
+<<<<<<< HEAD
+        const reasoning = await streamChat(base, { message: 'Explain star topology', sessionId, conversationId, model: 'hf.co/unsloth/Qwen3-4B-GGUF:Q4_K_M' });
+        assert.doesNotMatch(JSON.stringify(reasoning), /<think>|Let me look at the passages/);
+        assert.match(reasoning.at(-1).answer, /central switch/);
+        assert.equal(requests.at(-1).think, false, 'reasoning is turned off for thinking-capable models');
+
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         assert.equal((await post(base, `/api/conversations/${sessionId}/clear-pdfs`, { conversationId })).status, 200);
         const normalAgain = await streamChat(base, { message: 'Hello again', sessionId, conversationId });
         assert.equal(normalAgain.at(-1).mode, 'normal');

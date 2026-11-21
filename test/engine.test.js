@@ -119,7 +119,11 @@ test('retrieval respects the selected documents and expands acronyms', async () 
 
 test('intent: requests, topics and counts', () => {
     const cases = [
+<<<<<<< HEAD
+        ['Give me a real-life example of a LAN.', 'examples', 'LAN'],
+=======
         ['Give me a real-life example of a LAN.', 'examples', 'lan'],
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         ['What happens when two computers communicate?', 'steps', 'two computers communicate'],
         ['Summarize the topic about network topologies.', 'summary', 'network topologies'],
         ['What is the difference between star and bus topology?', 'compare', 'star bus topology'],
@@ -136,7 +140,11 @@ test('intent: requests, topics and counts', () => {
         assert.equal(parsed.topicText, topic, message);
     }
     const quiz = classify('Make 3 easy true or false questions about RAM');
+<<<<<<< HEAD
+    assert.deepEqual([quiz.intent, quiz.count, quiz.kind, quiz.difficulty, quiz.topicText], ['quiz', 3, 'true-false', 'easy', 'RAM']);
+=======
     assert.deepEqual([quiz.intent, quiz.count, quiz.kind, quiz.difficulty, quiz.topicText], ['quiz', 3, 'true-false', 'easy', 'ram']);
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     assert.equal(classify('Quiz me on keys, one question at a time').interactive, true);
     assert.equal(classify('Answer only from the PDF: what is RAM?').sourceMode, 'pdf-only');
 });
@@ -198,3 +206,30 @@ test('named PDFs must be uploaded and selected', () => {
     assert.match(resolveDocumentScope('quiz from missing.pdf', ['alpha.pdf'], ['alpha.pdf']).error, /not available/);
     assert.deepEqual(resolveDocumentScope('What is RAM?', ['alpha.pdf', 'beta.pdf'], ['beta.pdf']).names, ['beta.pdf']);
 });
+<<<<<<< HEAD
+
+test('sessions persist across restarts and expire when idle', () => {
+    const fs = require('node:fs');
+    const os = require('node:os');
+    const path = require('node:path');
+    const { createSessionStore, IDLE_LIMIT_MS } = require('../sessions');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cerebro-sessions-'));
+    const users = { Cruz: { lastName: 'Cruz' }, Reyes: { lastName: 'Reyes' } };
+    const load = name => users[name] || null;
+    const first = createSessionStore(dir, load);
+    const id = first.create(users.Cruz);
+    const other = first.create(users.Reyes);
+    const reopened = createSessionStore(dir, load);
+    assert.equal(reopened.get(id).user.lastName, 'Cruz', 'a new process still knows the session');
+    assert.equal(reopened.get('missing'), null);
+    reopened.removeUser('Cruz');
+    assert.equal(createSessionStore(dir, load).get(id), null);
+    const file = path.join(dir, 'sessions.json');
+    const records = JSON.parse(fs.readFileSync(file, 'utf8'));
+    records[other].lastSeen -= IDLE_LIMIT_MS + 1000;
+    fs.writeFileSync(file, JSON.stringify(records));
+    assert.equal(createSessionStore(dir, load).get(other), null, 'idle sessions expire');
+    fs.rmSync(dir, { recursive: true, force: true });
+});
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d

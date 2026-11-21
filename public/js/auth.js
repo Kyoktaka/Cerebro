@@ -46,6 +46,10 @@ document.querySelectorAll('.toggle-password').forEach(button => {
 });
 
 if (successBox && new URLSearchParams(window.location.search).has('registered')) successBox.hidden = false;
+<<<<<<< HEAD
+if (errorBox && new URLSearchParams(window.location.search).has('expired')) errorBox.textContent = 'You were signed out. Sign in again to continue.';
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 
 const loginForm = document.getElementById('loginForm');
 loginForm?.addEventListener('submit', async event => {
@@ -67,18 +71,59 @@ loginForm?.addEventListener('submit', async event => {
     }
 });
 
+<<<<<<< HEAD
+const resetForm = document.getElementById('resetForm');
+document.getElementById('forgotPassword')?.addEventListener('click', () => {
+=======
 document.getElementById('forgotPassword')?.addEventListener('click', async () => {
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     const username = document.getElementById('username');
     if (!username.value.trim()) {
         showError('Enter your username first, then choose "Forgot password?".');
         username.focus();
         return;
     }
+<<<<<<< HEAD
+    errorBox.textContent = '';
+    resetForm.hidden = false;
+    document.getElementById('resetEmail').focus();
+});
+
+document.getElementById('resetCancel')?.addEventListener('click', () => {
+    resetForm.hidden = true;
+    document.getElementById('resetMessage').textContent = '';
+    document.getElementById('password').focus();
+});
+
+const resetMessage = document.getElementById('resetMessage');
+resetForm?.addEventListener('submit', async event => {
+    event.preventDefault();
+    const email = document.getElementById('resetEmail');
+    const password = document.getElementById('resetPassword');
+    const fail = message => { resetMessage.textContent = message; };
+    if (!email.value.trim()) return fail('Enter the email on your account.');
+    if (password.value.length < 6) return fail('Use at least 6 characters for your new password.');
+    resetMessage.textContent = '';
+    const submit = resetForm.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+        await send('/auth/reset-password', { username: document.getElementById('username').value.trim(), email: email.value.trim(), password: password.value });
+        resetForm.hidden = true;
+        resetForm.reset();
+        document.getElementById('password').value = '';
+        showSuccess('Password reset. Sign in with your new password.');
+        document.getElementById('password').focus();
+    } catch (error) {
+        fail(error.message);
+    } finally {
+        submit.disabled = false;
+=======
     try {
         const result = await send('/auth/forgot-password', { lastName: username.value.trim() });
         showSuccess('Your password is: ' + result.password);
     } catch (error) {
         showError(error.message === 'User not found' ? 'No account uses that username.' : error.message);
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     }
 });
 

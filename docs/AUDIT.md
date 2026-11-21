@@ -61,7 +61,71 @@ Not run: any test against a real Ollama model. Model downloads are blocked in th
 - The answer cache and section notes grow the index file for long documents.
 - Interactive quiz state is server-side per conversation; quiz sets and flashcard decks keep progress only while the page is open, and say so.
 
+<<<<<<< HEAD
+## 6. Second pass: sign-outs, reasoning models, black-and-white theme
+
+### Random sign-outs and "Session not found" on upload
+
+Cause, reproduced: sign-ins lived only in a `Map` in server memory, and `npm run dev` (nodemon) watched every `.json` file in the project. Uploading a PDF writes `users/<name>.json` and `indexes/*.json`, so nodemon restarted the server in the middle of the upload, the `Map` was emptied, the upload answered 401 "Session not found", and the page signed the user out. The next message hit the same empty `Map`.
+
+Fix:
+- `sessions.js` keeps sign-ins in `sessions/sessions.json` (random 48-hex ids; account name and timestamps only), rebuilt on demand after a restart, expiring after 30 idle days.
+- `nodemon.json` watches only server code and `.env`, never `users/`, `uploads/`, `indexes/`, `sessions/` or `public/`.
+- Uploads send the sign-in as an `X-Session-Id` header, so a signed-out upload is refused before multer writes the file.
+- A 401 now sends the user to the sign-in page with "You were signed out" instead of a silent reset.
+
+Tests: the integration test restarts the server and keeps using the old session id. A unit test covers reload, removal and idle expiry.
+
+### Reasoning models (`hf.co/unsloth/Qwen3.5-4B-GGUF`)
+
+- Models that report the `thinking` capability get `think: false`.
+- `<think>…</think>` text is stripped from answers, JSON and the live draft, even for models whose template does not report thinking.
+- If reasoning uses the whole token budget, Cerebro asks once more with `/no_think` and twice the budget.
+- Long `hf.co/...` names are shortened in the header.
+
+Covered by an integration test (a thinking-capable mock model) and a unit test of the retry.
+
+### Accounts
+
+- Passwords are now salted scrypt hashes. Old plaintext accounts still sign in once and are upgraded on that sign-in.
+- `/api/auth/forgot-password`, which returned the password to anyone who knew a last name, is gone. `/api/auth/reset-password` sets a new password when the username and the account's email match, and signs the account out everywhere.
+- Eight wrong attempts lock an account for 10 minutes.
+- Registration validates every field on the server.
+- User files are written atomically, and an unreadable user file no longer crashes sign-in or registration.
+- Unknown `/api` routes and malformed JSON get JSON errors.
+
+### Logic and speed
+
+- Parsed indexes are cached by file modification time, so a message no longer re-reads a multi-megabyte index from disk. The index is saved only when summaries actually changed.
+- Model capabilities are cached for 60 seconds, and embedding batches went from 12 to 24 texts.
+- Synonym recovery adds passages to what the first search found instead of replacing them.
+- An empty retrieval no longer calls the model. A quiz or flashcards on a topic the PDF lacks says so instead of spending model calls.
+- Topic labels keep the student's casing ("RAM", not "ram").
+- The "what your PDFs cover" list draws from every selected PDF, not only the first.
+- Questions are capped at 4,000 characters.
+- Tests run the server in a temporary data folder, so `npm test` never touches `users/` or `uploads/`.
+
+### Interface
+
+- Dark mode is AMOLED black and white: `#000` page and panels, white primary actions, greys for hierarchy, and 1px lines where black surfaces meet. Colour is left only on quiz right/wrong, destructive actions and the model status dot.
+- Grey text was raised to at least 4.5:1 contrast in both themes.
+- Dialogs have a visible edge on black, and the danger button stays readable in dark mode.
+- Removed from the public pages: the "How an answer looks" sample, "Built with", and "About the project".
+
+### Results
+
+- `npm test`: 34 of 34 pass.
+- `npm run eval`: 14 of 14 scenarios pass.
+- Screens reviewed in both themes at desktop, laptop, tablet and phone widths.
+- User data and `.env` / `.env.example` were compared byte for byte with the originals and are unchanged.
+
+## 7. Known issues outside this scope
+
+- The session id still travels in some URLs (`GET /api/conversations/:sessionId`), which puts it in local server logs. The app binds to 127.0.0.1 by default.
+- The password reset uses the account email as proof because an offline app cannot send email. Anyone who knows both your last name and your email can reset your password on that machine.
+=======
 ## 6. Known issues outside this scope
 
 - Passwords are stored in plaintext and `/api/auth/forgot-password` returns them. Sessions live in memory and the session id travels in URLs. These are security problems in the existing account design; changing them changes the sign-in workflow, so they were left as they were and are flagged here.
 - `/api/auth/register` does not validate missing fields server-side.
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d

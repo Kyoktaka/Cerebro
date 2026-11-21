@@ -69,11 +69,26 @@ function topicPhrase(message) {
     if (quoted) return { text: quoted[1].trim(), quoted: true, documentWide: false };
     let text = ' ' + message + ' ';
     for (const pattern of REQUEST_PHRASES) text = text.replace(pattern, ' ');
+<<<<<<< HEAD
+    // Same tokens as words(), but the student's casing is kept so labels read "RAM", not "ram".
+    const tokens = text.normalize('NFKC').match(/[\p{L}\p{N}]+(?:['’][\p{L}]+)?/gu) || [];
+    const lower = tokens.map(word => word.toLowerCase());
+    const documentWide = lower.some(word => DOCUMENT_WORDS.has(word));
+    const kept = tokens.filter((word, i) => {
+        const low = lower[i];
+        return !STOP.has(low) && !META.has(low) && !ANAPHORA_WORDS.has(low) && !DOCUMENT_WORDS.has(low) && !/^\d+$/.test(low) && !FILLER.has(low);
+    });
+    // A capital on the message's first word is just the start of a sentence.
+    const first = message.trim().normalize('NFKC').match(/^[\p{L}\p{N}]+/u)?.[0];
+    const cased = kept.map(word => word === first && /^\p{Lu}\p{Ll}+$/u.test(word) ? word.toLowerCase() : word);
+    return { text: cased.join(' '), quoted: false, documentWide };
+=======
     const tokens = words(text);
     const documentWide = tokens.some(word => DOCUMENT_WORDS.has(word));
     const kept = tokens.filter(word => !STOP.has(word) && !META.has(word) && !ANAPHORA_WORDS.has(word) && !DOCUMENT_WORDS.has(word) &&
         !/^\d+$/.test(word) && !FILLER.has(word));
     return { text: kept.join(' '), quoted: false, documentWide };
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 }
 
 function countFrom(message, fallback) {

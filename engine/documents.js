@@ -3,7 +3,12 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { extractDocument, EXTRACTION_VERSION } = require('./pdf');
 
+<<<<<<< HEAD
+// CEREBRO_DATA_DIR moves all stored data (tests point it at a temp folder).
+const ROOT = process.env.CEREBRO_DATA_DIR ? path.resolve(process.env.CEREBRO_DATA_DIR) : path.join(__dirname, '..');
+=======
 const ROOT = path.join(__dirname, '..');
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 
 // Text lives in one string with per-document offsets, so marker-like text
 // inside a PDF cannot split documents and older conversations still load.

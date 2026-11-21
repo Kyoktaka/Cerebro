@@ -18,6 +18,11 @@ const {
     embedTexts
 } = require('./local-ai');
 const { documentAnswer } = require('./document-answers');
+<<<<<<< HEAD
+const { createSessionStore } = require('./sessions');
+const { hashPassword, checkPassword, createThrottle } = require('./passwords');
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 const { extractDocument } = require('./engine/pdf');
 const { packDocuments, parsePdfContent, originalDir, saveOriginals, upgradeDocuments } = require('./engine/documents');
 const { buildIndex, indexCovers, dropDocument, embeddingPrefixes } = require('./engine/indexer');
@@ -37,40 +42,59 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/vendor/fontawesome', express.static(path.join(__dirname, 'node_modules', '@fortawesome', 'fontawesome-free')));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const usersDir = path.join(__dirname, 'users');
-const uploadsDir = path.join(__dirname, 'uploads');
-const indexesDir = path.join(__dirname, 'indexes');
-if (!fs.existsSync(usersDir)) fs.mkdirSync(usersDir);
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
-if (!fs.existsSync(indexesDir)) fs.mkdirSync(indexesDir);
+const dataDir = process.env.CEREBRO_DATA_DIR ? path.resolve(process.env.CEREBRO_DATA_DIR) : __dirname;
+const usersDir = path.join(dataDir, 'users');
+const uploadsDir = path.join(dataDir, 'uploads');
+const indexesDir = path.join(dataDir, 'indexes');
+for (const dir of [usersDir, uploadsDir, indexesDir]) fs.mkdirSync(dir, { recursive: true });
 
+<<<<<<< HEAD
+const MAX_PDFS_PER_CONVERSATION = 10;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_TOTAL_CHARS = 1000000;
+const MAX_MESSAGE_CHARS = 4000;
+=======
 const userSessions = new Map();
 const MAX_PDFS_PER_CONVERSATION = 10;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MAX_TOTAL_CHARS = 1000000;
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 
 function getUserFilePath(lastName) {
     return path.join(usersDir, `${lastName.replace(/[^a-zA-Z0-9.]/g, '')}.json`);
 }
 
 function loadUser(lastName) {
+    if (typeof lastName !== 'string') return null;
     const filePath = getUserFilePath(lastName);
-    if (fs.existsSync(filePath)) {
+    try {
         return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (error) {
+        if (error.code !== 'ENOENT') console.error('User file error:', filePath, error.message);
+        return null;
     }
-    return null;
 }
 
+// Write to a temp file and rename, so a crash mid-write never leaves a
+// half-written account file behind.
 function saveUser(user) {
-    fs.writeFileSync(getUserFilePath(user.lastName), JSON.stringify(user, null, 2));
+    const filePath = getUserFilePath(user.lastName);
+    const tempPath = `${filePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(user, null, 2));
+    fs.renameSync(tempPath, filePath);
 }
+
+const sessions = createSessionStore(path.join(dataDir, 'sessions'), loadUser);
 
 function getAllUsers() {
     const users = [];
     const files = fs.readdirSync(usersDir);
     for (const file of files) {
-        if (file.endsWith('.json')) {
+        if (!file.endsWith('.json')) continue;
+        try {
             users.push(JSON.parse(fs.readFileSync(path.join(usersDir, file), 'utf8')));
+        } catch (error) {
+            console.error('User file error:', file, error.message);
         }
     }
     return users;
@@ -84,12 +108,39 @@ function getIndexPath(user, conversationId) {
     return path.join(indexesDir, `${userId}-${id}.json`);
 }
 
+// Parsed indexes are cached by path and modification time: an index with
+// embeddings can be many megabytes, and its keyword statistics are cached on
+// the object itself, so re-reading it on every message is wasted work.
+const indexCache = new Map();
+const INDEX_CACHE_SIZE = 12;
+
+function remember(filePath, mtimeMs, index) {
+    indexCache.delete(filePath);
+    indexCache.set(filePath, { mtimeMs, index });
+    if (indexCache.size > INDEX_CACHE_SIZE) indexCache.delete(indexCache.keys().next().value);
+}
+
 function loadIndex(user, conversationId) {
     const filePath = getIndexPath(user, conversationId);
-    if (!filePath || !fs.existsSync(filePath)) return null;
+    if (!filePath) return null;
+    let stat;
+    try {
+        stat = fs.statSync(filePath);
+    } catch {
+        indexCache.delete(filePath);
+        return null;
+    }
+    const cached = indexCache.get(filePath);
+    if (cached && cached.mtimeMs === stat.mtimeMs) return cached.index;
     try {
         const index = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+<<<<<<< HEAD
+        if (!Array.isArray(index.chunks)) return null;
+        remember(filePath, stat.mtimeMs, index);
+        return index;
+=======
         return Array.isArray(index.chunks) ? index : null;
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     } catch (error) {
         console.error('PDF index load error:', error);
         return null;
@@ -102,11 +153,18 @@ function saveIndex(user, conversationId, index) {
     const tempPath = `${filePath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
     fs.writeFileSync(tempPath, JSON.stringify(index));
     fs.renameSync(tempPath, filePath);
+    remember(filePath, fs.statSync(filePath).mtimeMs, index);
 }
 
 function deleteIndex(user, conversationId) {
     const filePath = getIndexPath(user, conversationId);
+<<<<<<< HEAD
+    if (!filePath) return;
+    indexCache.delete(filePath);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+=======
     if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 }
 
 function setSessionConversation(session, conversation, conversationId) {
@@ -235,15 +293,32 @@ app.get('/api/models', async (req, res) => {
 });
 
 // AUTH ENDPOINTS
-app.post('/api/auth/register', (req, res) => {
-    const { firstName, lastName, email, password } = req.body;
+const signInThrottle = createThrottle();
+const text = value => (typeof value === 'string' ? value.trim() : '');
+const usernameKey = name => name.replace(/[^a-zA-Z0-9.]/g, '').toLowerCase();
 
+app.post('/api/auth/register', (req, res) => {
+    const firstName = text(req.body.firstName);
+    const lastName = text(req.body.lastName);
+    const email = text(req.body.email).toLowerCase();
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+
+    if (!firstName || !lastName || !email || !password) {
+        return res.status(400).json({ error: 'Fill in every field.' });
+    }
+    if (!usernameKey(lastName)) {
+        return res.status(400).json({ error: 'Your last name needs at least one letter or number.' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ error: 'Enter a valid email address.' });
+    }
+    if (password.length < 6) {
+        return res.status(400).json({ error: 'Use at least 6 characters for your password.' });
+    }
     if (loadUser(lastName)) {
         return res.status(400).json({ error: 'Username already exists. Try adding your middle initial (e.g., ' + lastName + 'J)' });
     }
-    const allUsers = getAllUsers();
-    const emailExists = allUsers.some(user => user.email === email);
-    if (emailExists) {
+    if (getAllUsers().some(user => String(user.email || '').toLowerCase() === email)) {
         return res.status(400).json({ error: 'Email already registered. Please use a different email.' });
     }
 
@@ -252,7 +327,7 @@ app.post('/api/auth/register', (req, res) => {
         firstName,
         lastName,
         email,
-        password,
+        password: hashPassword(password),
         createdAt: new Date().toISOString(),
         conversations: []
     };
@@ -267,23 +342,26 @@ app.post('/api/auth/register', (req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
-    const { username, password } = req.body;
-    const user = getAllUsers().find(u => u.lastName === username && u.password === password);
-
-    if (!user) {
+    const username = text(req.body.username);
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+    const key = usernameKey(username);
+    if (!key || !password) return res.status(401).json({ error: 'Invalid credentials' });
+    if (signInThrottle.blocked(key)) {
+        return res.status(429).json({ error: 'Too many attempts. Wait 10 minutes and try again.' });
+    }
+    const user = loadUser(username);
+    const check = user && user.lastName === username ? checkPassword(user.password, password) : { ok: false };
+    if (!check.ok) {
+        signInThrottle.miss(key);
         return res.status(401).json({ error: 'Invalid credentials' });
     }
+    signInThrottle.clear(key);
+    if (check.legacy) {
+        user.password = hashPassword(password);
+        saveUser(user);
+    }
 
-    const sessionId = Date.now().toString() + Math.random().toString(36);
-    userSessions.set(sessionId, {
-        user,
-        pdfContent: '',
-        pdfNames: [],
-        activePdfNames: [],
-        uploadedPDFs: [],
-        pdfIndex: null,
-        currentConversationId: null
-    });
+    const sessionId = sessions.create(user);
 
     res.json({
         success: true,
@@ -292,13 +370,37 @@ app.post('/api/auth/login', (req, res) => {
     });
 });
 
+// Offline there is no email to send a reset link to, so the account's email
+// address is the proof. The old password is never shown.
+app.post('/api/auth/reset-password', (req, res) => {
+    const username = text(req.body.username);
+    const email = text(req.body.email).toLowerCase();
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+    const key = usernameKey(username);
+    if (!key || !email) return res.status(400).json({ error: 'Enter your username and the email on your account.' });
+    if (password.length < 6) return res.status(400).json({ error: 'Use at least 6 characters for your new password.' });
+    if (signInThrottle.blocked(key)) {
+        return res.status(429).json({ error: 'Too many attempts. Wait 10 minutes and try again.' });
+    }
+    const user = loadUser(username);
+    if (!user || user.lastName !== username || String(user.email || '').toLowerCase() !== email) {
+        signInThrottle.miss(key);
+        return res.status(400).json({ error: "That username and email don't match an account." });
+    }
+    signInThrottle.clear(key);
+    user.password = hashPassword(password);
+    saveUser(user);
+    sessions.removeUser(user.lastName);
+    res.json({ success: true });
+});
+
 app.post('/api/auth/logout', (req, res) => {
-    userSessions.delete(req.body.sessionId);
+    sessions.remove(req.body.sessionId);
     res.json({ success: true });
 });
 
 app.post('/api/auth/delete-account', (req, res) => {
-    const session = userSessions.get(req.body.sessionId);
+    const session = sessions.get(req.body.sessionId);
     if (session && session.user) {
         const user = loadUser(session.user.lastName);
         for (const conversation of user?.conversations || []) {
@@ -307,23 +409,14 @@ app.post('/api/auth/delete-account', (req, res) => {
         }
         const filePath = getUserFilePath(session.user.lastName);
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        userSessions.delete(req.body.sessionId);
+        sessions.removeUser(session.user.lastName);
     }
     res.json({ success: true });
 });
 
-app.post('/api/auth/forgot-password', (req, res) => {
-    const user = loadUser(req.body.lastName);
-    if (user) {
-        res.json({ success: true, password: user.password });
-    } else {
-        res.status(404).json({ error: 'User not found' });
-    }
-});
-
 // CONVERSATION MANAGEMENT
 app.get('/api/conversations/:sessionId', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session || !session.user) {
         return res.json({ conversations: [] });
     }
@@ -335,7 +428,7 @@ app.get('/api/conversations/:sessionId', (req, res) => {
 });
 
 app.post('/api/conversations/create', (req, res) => {
-    const session = userSessions.get(req.body.sessionId);
+    const session = sessions.get(req.body.sessionId);
     if (!session || !session.user) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -365,7 +458,7 @@ app.post('/api/conversations/create', (req, res) => {
 });
 
 app.post('/api/conversations/:sessionId/clear-pdfs', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session) return res.status(401).json({ error: 'Session not found' });
     const convId = req.body.conversationId;
     if (!syncRequestedConversation(session, convId)) {
@@ -397,7 +490,7 @@ app.post('/api/conversations/:sessionId/clear-pdfs', (req, res) => {
 });
 
 app.post('/api/conversations/:sessionId/focus-pdf', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session) return res.status(401).json({ error: 'Session not found' });
 
     const { conversationId, pdfNames: namesToKeep } = req.body;
@@ -430,7 +523,7 @@ app.post('/api/conversations/:sessionId/focus-pdf', (req, res) => {
 });
 
 app.post('/api/conversations/:sessionId/delete-pdf', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session) return res.status(401).json({ error: 'Session not found' });
 
     const { conversationId, pdfName } = req.body;
@@ -488,7 +581,7 @@ app.post('/api/conversations/:sessionId/delete-pdf', (req, res) => {
 });
 
 app.get('/api/conversations/:sessionId/:conversationId', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session || !session.user) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -511,7 +604,11 @@ app.get('/api/conversations/:sessionId/:conversationId', (req, res) => {
 });
 
 app.get('/api/conversations/:sessionId/:conversationId/outline', async (req, res) => {
+<<<<<<< HEAD
+    const session = sessions.get(req.params.sessionId);
+=======
     const session = userSessions.get(req.params.sessionId);
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     if (!session || !session.user) return res.status(401).json({ error: 'Unauthorized' });
     const conversation = loadUser(session.user.lastName)?.conversations?.find(c => c.id === req.params.conversationId);
     if (!conversation) return res.status(404).json({ error: 'Conversation not found.' });
@@ -528,7 +625,7 @@ app.get('/api/conversations/:sessionId/:conversationId/outline', async (req, res
 
 
 app.put('/api/conversations/:sessionId/:conversationId', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session || !session.user) return res.status(401).json({ error: 'Unauthorized' });
 
     const user = loadUser(session.user.lastName);
@@ -544,7 +641,7 @@ app.put('/api/conversations/:sessionId/:conversationId', (req, res) => {
 });
 
 app.delete('/api/conversations/:sessionId/:conversationId', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session || !session.user) return res.status(401).json({ error: 'Unauthorized' });
 
     const user = loadUser(session.user.lastName);
@@ -580,6 +677,9 @@ const upload = multer({
 const acceptPDFs = upload.array('files');
 
 app.post('/api/upload', (req, res, next) => {
+    // Refuse before writing anything to disk when the sign-in is gone.
+    const header = req.get('x-session-id');
+    if (header && !sessions.get(header)) return res.status(401).json({ error: 'Session not found' });
     acceptPDFs(req, res, error => {
         if (!error) return next();
         for (const file of req.files || []) {
@@ -594,7 +694,7 @@ app.post('/api/upload', (req, res, next) => {
     });
 }, async (req, res) => {
     try {
-        const session = userSessions.get(req.body.sessionId);
+        const session = sessions.get(req.get('x-session-id') || req.body.sessionId);
         if (!session) return res.status(401).json({ error: 'Session not found' });
         if (!req.files?.length) return res.status(400).json({ error: 'Choose at least one PDF.' });
 
@@ -713,7 +813,7 @@ app.post('/api/upload', (req, res, next) => {
 
 app.post('/api/source', (req, res) => {
     const { sessionId, conversationId, digest } = req.body;
-    const session = userSessions.get(sessionId);
+    const session = sessions.get(sessionId);
     if (!session) return res.status(401).end();
     const conversation = loadUser(session.user.lastName)?.conversations?.find(c => c.id === conversationId);
     const selected = conversation?.activePdfNames || conversation?.pdfNames || [];
@@ -805,7 +905,10 @@ app.post('/api/chat', async (req, res) => {
         if (typeof message !== 'string' || !message.trim()) {
             return res.status(400).json({ error: 'Enter a message.' });
         }
-        const session = userSessions.get(sessionId);
+        if (message.length > MAX_MESSAGE_CHARS) {
+            return res.status(400).json({ error: `Keep questions under ${MAX_MESSAGE_CHARS.toLocaleString('en')} characters. Upload long text as a PDF instead.` });
+        }
+        const session = sessions.get(sessionId);
         if (!session) return res.status(401).json({ error: 'Session not found' });
         let conversation = null;
         if (conversationId && session.user) {
@@ -824,7 +927,11 @@ app.post('/api/chat', async (req, res) => {
         }
         const models = await listModels();
         const selectedModel = installedModel(models, req.body.model || OLLAMA_MODEL);
+<<<<<<< HEAD
+        const capabilities = await requireCapability(selectedModel, 'completion');
+=======
         await requireCapability(selectedModel, 'completion');
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 
         if (await upgradeConversation(session, conversationId)) {
             conversation = loadUser(session.user.lastName)?.conversations?.find(c => c.id === conversationId) || conversation;
@@ -842,7 +949,11 @@ app.post('/api/chat', async (req, res) => {
         if (scope.error) return finish(scope.error, 'study', update);
         if (!scope.names.length) return finish('Select a PDF in Sources before asking a question.', 'study', update);
 
+<<<<<<< HEAD
+        const model = createModel(selectedModel, controller.signal, { thinking: capabilities.includes('thinking') });
+=======
         const model = createModel(selectedModel, controller.signal);
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         const practice = conversation?.practice;
         if (practice && practice.names.every(name => scope.names.includes(name)) && isPracticeReply(practice, scope.query)) {
             const result = await advancePractice(model, practice, scope.query);
@@ -875,6 +986,10 @@ app.post('/api/chat', async (req, res) => {
                 return null;
             }
         };
+<<<<<<< HEAD
+        let summariesChanged = false;
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         const context = topicReset ? {} : conversation ? (conversation.context || {}) : (session.chatContext || {});
         const result = await respond({
             index,
@@ -887,9 +1002,15 @@ app.post('/api/chat', async (req, res) => {
             sourceMode: sourceMode === 'pdf-only' ? 'pdf-only' : null,
             onStatus: out.status,
             onDraft: out.draft,
+<<<<<<< HEAD
+            onCache: () => { summariesChanged = true; }
+        });
+        if (summariesChanged && conversationId) saveIndex(session.user, conversationId, index);
+=======
             onCache: () => conversationId && saveIndex(session.user, conversationId, index)
         });
         if (index.summaries && conversationId) saveIndex(session.user, conversationId, index);
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         const nextContext = result.topic ? { activeTopic: result.topic, updatedAt: new Date().toISOString() } : null;
         return finish(result.text, result.mode, {
             ...update,
@@ -909,6 +1030,17 @@ app.post('/api/chat', async (req, res) => {
 
 app.get('/api/health', (req, res) => {
     res.json({ status: 'OK', message: 'Cerebro backend is running' });
+});
+
+app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
+
+// Bad JSON bodies and anything unexpected still get a JSON reply the page can show.
+app.use((error, req, res, next) => {
+    if (res.headersSent) return next(error);
+    if (error.type === 'entity.parse.failed') return res.status(400).json({ error: 'The request was not valid JSON.' });
+    if (error.type === 'entity.too.large') return res.status(413).json({ error: 'The request is too large.' });
+    console.error('Unexpected error:', error);
+    res.status(500).json({ error: 'Something went wrong on the server.' });
 });
 
 app.listen(PORT, HOST, async () => {

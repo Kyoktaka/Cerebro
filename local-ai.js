@@ -54,7 +54,14 @@ async function listModels() {
         .filter(item => item.name && !item.name.endsWith(':cloud'));
 }
 
+// Every chat message checks the model, so a short cache saves a round trip
+// without hiding a model that was re-pulled for long.
+const capabilityCache = new Map();
+const CAPABILITY_TTL_MS = 60 * 1000;
+
 async function modelCapabilities(model) {
+    const cached = capabilityCache.get(model);
+    if (cached && Date.now() - cached.at < CAPABILITY_TTL_MS) return cached.capabilities;
     const response = await request('/api/show', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -65,6 +72,7 @@ async function modelCapabilities(model) {
     if (!Array.isArray(body.capabilities)) {
         throw new OllamaError(`Ollama cannot report capabilities for "${model}". Update Ollama.`, 502);
     }
+    capabilityCache.set(model, { at: Date.now(), capabilities: body.capabilities });
     return body.capabilities;
 }
 
@@ -88,6 +96,7 @@ async function requireCapability(model, capability) {
     if (!capabilities.includes(capability)) {
         throw new OllamaError(`"${model}" does not support ${capability}. Select a compatible model.`, 422);
     }
+    return capabilities;
 }
 
 function installedModel(models, name) {
@@ -106,8 +115,8 @@ function installedModel(models, name) {
 
 async function embedTexts(texts, model = OLLAMA_EMBED_MODEL) {
     const all = [];
-    for (let i = 0; i < texts.length; i += 12) {
-        const batch = texts.slice(i, i + 12);
+    for (let i = 0; i < texts.length; i += 24) {
+        const batch = texts.slice(i, i + 24);
         const response = await request('/api/embed', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -133,13 +142,24 @@ function withTimeout(signal, ms) {
     return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : signal;
 }
 
+<<<<<<< HEAD
+// `think` is sent only for models that report the thinking capability:
+// false keeps reasoning models (Qwen3, DeepSeek-R1) from spending the time
+// budget on hidden reasoning and from breaking JSON output.
+async function openChat(model, messages, stream, signal, format, options = {}, think) {
+=======
 async function openChat(model, messages, stream, signal, format, options = {}) {
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     try {
         return await request('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+<<<<<<< HEAD
+                model, messages, stream, ...(format ? { format } : {}), ...(typeof think === 'boolean' ? { think } : {}),
+=======
                 model, messages, stream, ...(format ? { format } : {}),
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
                 options: { num_ctx: OLLAMA_NUM_CTX, ...(format ? { temperature: 0 } : {}), ...options }
             }),
             signal: withTimeout(signal, OLLAMA_TIMEOUT_MS)
