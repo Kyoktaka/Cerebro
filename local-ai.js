@@ -142,16 +142,24 @@ function withTimeout(signal, ms) {
     return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : signal;
 }
 
+<<<<<<< HEAD
 // `think` is sent only for models that report the thinking capability:
 // false keeps reasoning models (Qwen3, DeepSeek-R1) from spending the time
 // budget on hidden reasoning and from breaking JSON output.
 async function openChat(model, messages, stream, signal, format, options = {}, think) {
+=======
+async function openChat(model, messages, stream, signal, format, options = {}) {
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     try {
         return await request('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+<<<<<<< HEAD
                 model, messages, stream, ...(format ? { format } : {}), ...(typeof think === 'boolean' ? { think } : {}),
+=======
+                model, messages, stream, ...(format ? { format } : {}),
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
                 options: { num_ctx: OLLAMA_NUM_CTX, ...(format ? { temperature: 0 } : {}), ...options }
             }),
             signal: withTimeout(signal, OLLAMA_TIMEOUT_MS)

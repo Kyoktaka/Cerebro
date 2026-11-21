@@ -46,7 +46,10 @@ document.querySelectorAll('.toggle-password').forEach(button => {
 });
 
 if (successBox && new URLSearchParams(window.location.search).has('registered')) successBox.hidden = false;
+<<<<<<< HEAD
 if (errorBox && new URLSearchParams(window.location.search).has('expired')) errorBox.textContent = 'You were signed out. Sign in again to continue.';
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 
 const loginForm = document.getElementById('loginForm');
 loginForm?.addEventListener('submit', async event => {
@@ -68,14 +71,19 @@ loginForm?.addEventListener('submit', async event => {
     }
 });
 
+<<<<<<< HEAD
 const resetForm = document.getElementById('resetForm');
 document.getElementById('forgotPassword')?.addEventListener('click', () => {
+=======
+document.getElementById('forgotPassword')?.addEventListener('click', async () => {
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     const username = document.getElementById('username');
     if (!username.value.trim()) {
         showError('Enter your username first, then choose "Forgot password?".');
         username.focus();
         return;
     }
+<<<<<<< HEAD
     errorBox.textContent = '';
     resetForm.hidden = false;
     document.getElementById('resetEmail').focus();
@@ -109,6 +117,13 @@ resetForm?.addEventListener('submit', async event => {
         fail(error.message);
     } finally {
         submit.disabled = false;
+=======
+    try {
+        const result = await send('/auth/forgot-password', { lastName: username.value.trim() });
+        showSuccess('Your password is: ' + result.password);
+    } catch (error) {
+        showError(error.message === 'User not found' ? 'No account uses that username.' : error.message);
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     }
 });
 

@@ -2,6 +2,7 @@
 
 Cerebro is a reading desk for course PDFs: a column for reading answers, the chats you have had, and the documents you are studying with their contents.
 
+<<<<<<< HEAD
 ## Black and white
 
 The palette is two inks and greys between them. Meaning comes from weight, tone and position, not hue:
@@ -18,6 +19,24 @@ Colour appears in three places only, because there it carries a state you must n
 
 - Dark (default) is AMOLED black: `#000000` page and panels, so pixels stay off on OLED screens. Raised surfaces are `#141414`; panels, dialogs and the viewer are separated by 1px lines (`rgba(255,255,255,.13)`), since shadows do not show on black. Text is `#f5f5f5`, secondary `#a8a8a8`.
 - Light is the same layout in reverse: white page, `#0a0a0a` ink, `#e4e4e4` lines.
+=======
+## Provenance colors
+
+Three colors carry meaning and are not used for decoration:
+
+| Token | Meaning | Where |
+| --- | --- | --- |
+| `--ink` | Cerebro's actions | Buttons, selected topic, takeaways, focus rings |
+| `--mark` / `--mark-line` | Text from your PDF | Page tabs, evidence quotes in sources and quiz feedback |
+| `--pencil` | Explanation not from your PDF | The rule and label of "Beyond your PDF" |
+
+Correct and wrong (`--good`, `--bad`) appear only in quiz feedback and destructive actions.
+
+## Themes
+
+- Dark is the default: true black `#000000` page, `#0c0e11` panels, `#161a1f` raised surfaces, separation by surface tone rather than borders.
+- Light: cool paper `#f4f5f7`, white panels, the same structure.
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 - Both themes define the same token set (enforced by `test/frontend-contract.test.js`).
 
 ## Type
@@ -35,7 +54,11 @@ Colour appears in three places only, because there it carries a state you must n
 
 ## Rules
 
+<<<<<<< HEAD
 - No borders around navigation items, no cards around messages, no gradients or glows. Hairlines only where two black surfaces meet.
+=======
+- No borders around navigation items, no cards around messages, no gradients or glows.
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 - Numbers appear only where content is a sequence (quiz questions, steps).
 - Motion only answers an action (drawers, the working indicator); reduced motion is respected.
 - Empty states say what to do next; errors say what happened and how to fix it.

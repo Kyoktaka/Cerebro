@@ -105,6 +105,7 @@ test('PDF workspace: upload, grounded answers, follow-ups, scope, study tools, p
 
         assert.equal((await post(base, '/api/auth/register', { firstName: 'Local', lastName, email: `${lastName}@example.test`, password: 'test-only-password' })).status, 200);
         sessionId = (await post(base, '/api/auth/login', { username: lastName, password: 'test-only-password' })).body.sessionId;
+<<<<<<< HEAD
         const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'users', lastName + '.json'), 'utf8'));
         assert.match(stored.password, /^scrypt:/, 'passwords are stored hashed');
         assert.equal((await post(base, '/api/auth/login', { username: lastName, password: 'wrong-password' })).status, 401);
@@ -118,6 +119,8 @@ test('PDF workspace: upload, grounded answers, follow-ups, scope, study tools, p
         assert.match(JSON.parse(fs.readFileSync(legacyFile, 'utf8')).password, /^scrypt:/, 'and their password is hashed on that sign-in');
         assert.equal((await post(base, '/api/auth/reset-password', { username: legacyName, email: 'OLD@example.test', password: 'brand-new' })).status, 200);
         assert.equal((await post(base, '/api/auth/login', { username: legacyName, password: 'brand-new' })).status, 200);
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         assert.ok(sessionId);
         const conversationId = (await post(base, '/api/conversations/create', { sessionId })).body.conversationId;
         assert.ok(conversationId);
@@ -213,7 +216,11 @@ test('PDF workspace: upload, grounded answers, follow-ups, scope, study tools, p
 
         await stopCerebro(app);
         app = await startCerebro(port, ollamaPort);
+<<<<<<< HEAD
         // Sign-in survives a server restart (nodemon reloads used to log users out).
+=======
+        sessionId = (await post(base, '/api/auth/login', { username: lastName, password: 'test-only-password' })).body.sessionId;
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         const restored = await (await fetch(`${base}/api/conversations/${sessionId}/${conversationId}`)).json();
         assert.deepEqual(restored.activePdfNames, ['networking.pdf']);
         const embedsBefore = embedRequests.length;
@@ -222,11 +229,14 @@ test('PDF workspace: upload, grounded answers, follow-ups, scope, study tools, p
         assert.match(resumed.at(-1).answer, /central switch/);
         assert.equal(embedRequests.length - embedsBefore, 1, 'the saved index is reused; only the question is embedded');
 
+<<<<<<< HEAD
         const reasoning = await streamChat(base, { message: 'Explain star topology', sessionId, conversationId, model: 'hf.co/unsloth/Qwen3-4B-GGUF:Q4_K_M' });
         assert.doesNotMatch(JSON.stringify(reasoning), /<think>|Let me look at the passages/);
         assert.match(reasoning.at(-1).answer, /central switch/);
         assert.equal(requests.at(-1).think, false, 'reasoning is turned off for thinking-capable models');
 
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         assert.equal((await post(base, `/api/conversations/${sessionId}/clear-pdfs`, { conversationId })).status, 200);
         const normalAgain = await streamChat(base, { message: 'Hello again', sessionId, conversationId });
         assert.equal(normalAgain.at(-1).mode, 'normal');

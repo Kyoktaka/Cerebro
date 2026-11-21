@@ -16,6 +16,7 @@ function timeoutError(error) {
     return error;
 }
 
+<<<<<<< HEAD
 // Some GGUF chat templates put reasoning inline as <think>…</think> even
 // when thinking is off. It is never part of the answer.
 function stripThinking(text) {
@@ -81,12 +82,17 @@ function createModel(model, signal, { thinking = false } = {}) {
         return { raw, value: parseJson(raw) };
     }
 
+=======
+function createModel(model, signal) {
+    let calls = 0;
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     return {
         model,
         get calls() { return calls; },
         async text(system, user, { onDelta, temperature = 0.3, maxTokens = 900 } = {}) {
             calls++;
             try {
+<<<<<<< HEAD
                 let { raw, answer } = await streamText(system, user, onDelta, { temperature, num_predict: maxTokens });
                 if (!answer && raw.includes('<think>')) {
                     // Reasoning used up the token budget: ask again with reasoning switched off.
@@ -96,6 +102,11 @@ function createModel(model, signal, { thinking = false } = {}) {
                 }
                 if (!answer) throw new OllamaError('The model returned only hidden reasoning and no answer. Try again or pick another model.', 502);
                 return answer;
+=======
+                const response = await openChat(model, [{ role: 'system', content: system }, { role: 'user', content: user }],
+                    true, signal, undefined, { temperature, num_predict: maxTokens });
+                return await readChatStream(response, delta => onDelta?.(delta));
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
             } catch (error) {
                 throw timeoutError(error);
             }
@@ -103,10 +114,18 @@ function createModel(model, signal, { thinking = false } = {}) {
         async json(system, user, schema, { temperature = 0, maxTokens = 1600 } = {}) {
             calls++;
             try {
+<<<<<<< HEAD
                 const first = await askJson(system, user, schema, { temperature, num_predict: maxTokens });
                 if (first.value !== null || !first.raw.includes('<think>')) return first.value;
                 calls++;
                 return (await askJson(system, user + NO_THINK, schema, { temperature, num_predict: maxTokens * 2 })).value;
+=======
+                const response = await openChat(model, [{ role: 'system', content: system }, { role: 'user', content: user }],
+                    false, signal, schema, { temperature, num_predict: maxTokens });
+                const body = await response.json();
+                if (body.error) throw new OllamaError('Local model request failed.', 502);
+                try { return JSON.parse(body.message?.content); } catch { return null; }
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
             } catch (error) {
                 throw timeoutError(error);
             }
@@ -114,4 +133,8 @@ function createModel(model, signal, { thinking = false } = {}) {
     };
 }
 
+<<<<<<< HEAD
 module.exports = { createModel, CONTEXT_CHARS, stripThinking, thinkingFilter, parseJson };
+=======
+module.exports = { createModel, CONTEXT_CHARS };
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d

@@ -57,13 +57,19 @@ Optional tuning, all with safe defaults:
 | `CEREBRO_LLM_TIMEOUT_MS` | `300000` | Longest time one model call may run before Cerebro stops it with a clear message. |
 | `CEREBRO_CHUNK_SIZE` | `1400` | Target characters per indexed passage. |
 | `CEREBRO_CHUNK_OVERLAP` | `180` | Characters of the previous passage repeated at the start of the next one in a section. |
+<<<<<<< HEAD
 | `CEREBRO_DATA_DIR` | project folder | Where `users/`, `uploads/`, `indexes/` and `sessions/` are kept. |
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 
 Changing `OLLAMA_EMBED_MODEL` or the chunk settings rebuilds each conversation's index the next time it is used.
 
 **Model choice matters more than any setting.** Cerebro works with any chat model Ollama lists, but code models such as `qwen2.5-coder:3b` were trained for programming, not explanation. For studying, a general instruction model teaches better and follows the citation rules more reliably, for example `qwen2.5:7b`, `llama3.1:8b` or `gemma2:9b` if your computer has the memory, or `llama3.2:3b` / `qwen2.5:3b` on smaller machines. Measure the difference with `npm run eval:live` (see Testing).
+<<<<<<< HEAD
 
 **Reasoning models** such as Qwen3 or Qwen3.5 GGUF builds (`hf.co/unsloth/...`) work too. Cerebro turns their reasoning off (`think: false`) so the token budget goes to the answer, hides any `<think>…</think>` text a template still emits, and asks once more with `/no_think` if reasoning used up the whole budget. Long model names are shortened in the header; hover to see the full name.
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 
 ## Use Cerebro
 
@@ -80,7 +86,11 @@ Changing `OLLAMA_EMBED_MODEL` or the chunk settings rebuilds each conversation's
   - *Study guide* and *Key terms*.
   You can also type requests such as `Make 5 hard true or false questions about normalization`.
 - **Limits**: 10 PDFs per conversation, 10 MB each, 1,000,000 extracted characters per conversation.
+<<<<<<< HEAD
 - **Settings** (gear at the bottom left, or the model name at the top): theme (black or white), answer mode, chat model, sign out and account deletion.
+=======
+- **Settings** (gear at the bottom left, or the model name at the top): theme (true-black dark or light), answer mode, chat model, sign out and account deletion.
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 
 ## How answers are checked
 
@@ -108,11 +118,17 @@ Run `python examples/python/grounded_ollama.py context.json`. The wrapper uses `
 
 ## Data
 
+<<<<<<< HEAD
 Account and conversation records live in `users/`; search indexes live in `indexes/`; original PDFs live in `uploads/originals/` for the viewer; sign-ins live in `sessions/sessions.json`. Removing a PDF, clearing sources, or deleting a conversation or account removes the associated originals. Conversations uploaded with older versions are re-read from their stored originals the first time they are opened, so they get the new structure and citations.
 
 **Sign-ins** last until you sign out or stop using Cerebro for 30 days, and they survive server restarts. Only the account name and timestamps are stored in `sessions/`.
 
 **Passwords** are stored as salted scrypt hashes. Accounts created before this change still sign in with their old password, which is then replaced by a hash. *Forgot password?* on the sign-in page sets a new password when you enter your username and the email on the account; the old password is never shown. After eight wrong attempts an account is locked for 10 minutes. Cerebro is still a local app: do not expose it to a network you do not trust.
+=======
+Account and conversation records live in `users/`; search indexes live in `indexes/`; original PDFs live in `uploads/originals/` for the viewer. Removing a PDF, clearing sources, or deleting a conversation or account removes the associated originals. Conversations uploaded with older versions are re-read from their stored originals the first time they are opened, so they get the new structure and citations.
+
+Passwords are stored in plaintext, and the password recovery endpoint returns them. Use a unique password and do not expose Cerebro to a network you do not trust.
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 
 ## API
 
@@ -120,10 +136,16 @@ Account and conversation records live in `users/`; search indexes live in `index
 | --- | --- |
 | `GET /api/health` | Check the Cerebro server. |
 | `GET /api/models` | Ollama connection and pulled chat models: `available`, `models`, `defaultModel`, `embeddingModel`, `embeddingAvailable`, optional `error`. |
+<<<<<<< HEAD
 | `POST /api/upload` | Upload PDFs to a conversation. Send the sign-in as the `X-Session-Id` header so a signed-out upload is refused before anything is stored. `extractedPages` reports pages, readable pages and `imagePages` per file. |
 | `GET /api/conversations/:sessionId/:conversationId/outline` | Sections, page ranges, key terms and unreadable pages for each PDF in a conversation. |
 | `POST /api/source` | Return a selected original PDF by citation digest. |
 | `POST /api/auth/register`, `/login`, `/logout`, `/reset-password`, `/delete-account` | Local accounts. `reset-password` takes `username`, `email` and the new `password`. |
+=======
+| `POST /api/upload` | Upload PDFs to a conversation. `extractedPages` reports pages, readable pages and `imagePages` per file. |
+| `GET /api/conversations/:sessionId/:conversationId/outline` | Sections, page ranges, key terms and unreadable pages for each PDF in a conversation. |
+| `POST /api/source` | Return a selected original PDF by citation digest. |
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 | `POST /api/chat` | Ask a question. Accepts `message`, `sessionId`, `conversationId`, optional `model`, `stream: true`, `sourceMode: "pdf-only"` and `topicReset: true`. |
 
 With `stream: true`, `/api/chat` returns newline-delimited JSON: `status` events (`stage`, `detail`) while it searches, writes and checks; `draft` events with unverified model text (`reset: true` starts a revision); then one `delta` with the verified answer and a `done` event with `answer`, `mode`, the active `topic` and `meta` (intent, answerability class, evidence strength and citation-check counts). An `error` event reports a failure. Clients that only read `delta`, `done` and `error` keep working.
@@ -136,8 +158,11 @@ npm run eval      # scenarios A–N on fixture PDFs with the stand-in model
 npm run eval:live # the same scenarios against your Ollama models from .env
 ```
 
+<<<<<<< HEAD
 Tests run the server against a temporary data folder, never your `users/` or `uploads/`.
 
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 `npm run eval` checks the pipeline: retrieval, selected-document isolation, follow-up topics, citation checks, summary coverage and quiz validation. Its stand-in model copies sentences from passages, so it says nothing about answer quality. `npm run eval:live` runs the real models and reports pass/fail per scenario, citation accuracy, removed-claim rate and seconds per turn; add `--verbose` to read every answer.
 
 ## Troubleshooting
@@ -149,7 +174,10 @@ Tests run the server against a temporary data folder, never your `users/` or `up
 | No chat model in the picker | Run `ollama list`, pull a chat model such as `ollama pull llama3.2`, then choose *Check again*. |
 | PDF indexing fails | Run `ollama pull nomic-embed-text`, or pull the model named by `OLLAMA_EMBED_MODEL`. |
 | "Pages are scanned images" | Run OCR on the PDF (for example with your scanner software or `ocrmypdf`) and upload it again. |
+<<<<<<< HEAD
 | "The model returned only hidden reasoning" | The reasoning model spent its whole budget thinking, even after a retry. Pick a non-reasoning model or a smaller question. |
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 | Answers are slow | The first answer loads the model into memory. Large `OLLAMA_NUM_CTX` values and long PDFs make prompts longer; summaries of long documents take one call per part. Lower `CEREBRO_CONTEXT_CHARS` on slow machines. |
 | A quiz has fewer questions than asked | Questions that fail the checks are dropped rather than shown. Name a specific section or use a stronger model. |
 

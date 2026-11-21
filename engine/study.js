@@ -251,7 +251,11 @@ async function generateSet(ctx, settings) {
     const kind = flashcards ? 'flashcards' : settings.kind === 'mixed' ? null : settings.kind;
     const count = Math.max(1, Math.min(30, settings.count || 10));
     const { batches, label } = await sourcePlan(ctx, count);
+<<<<<<< HEAD
     if (!batches.length) return { items: [], label, rejected: [], uncovered: Boolean(label) };
+=======
+    if (!batches.length) return { items: [], label, rejected: [] };
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     const mix = difficultyMix(count, settings.difficulty || 'mixed');
     const accepted = [];
     const rejected = [];
@@ -333,6 +337,7 @@ function mostCommon(list) {
 
 async function studySet(ctx, settings) {
     const flashcards = settings.intent === 'flashcards';
+<<<<<<< HEAD
     const { items, label, rejected, unverified, uncovered } = await generateSet(ctx, settings);
     const topic = label ? { label } : null;
     if (uncovered) {
@@ -341,6 +346,10 @@ async function studySet(ctx, settings) {
             mode: 'unrelated', topic: null, meta: { answerability: 'unrelated' }
         };
     }
+=======
+    const { items, label, rejected, unverified } = await generateSet(ctx, settings);
+    const topic = label ? { label } : null;
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     if (!items.length) {
         const why = rejected.length ? ` The model's drafts failed the checks (most common: ${mostCommon(rejected)}).` : '';
         return {
@@ -391,10 +400,14 @@ function reveal(item) {
 }
 
 async function startPractice(ctx, settings) {
+<<<<<<< HEAD
     const { items, label, rejected, uncovered } = await generateSet(ctx, { ...settings, count: Math.min(settings.count || 5, 10) });
     if (uncovered) {
         return { text: `I couldn't find “${label}” in your selected PDF${ctx.names.length > 1 ? 's' : ''}. Try a section from the Contents list.`, mode: 'unrelated', topic: null, meta: { answerability: 'unrelated' } };
     }
+=======
+    const { items, label, rejected } = await generateSet(ctx, { ...settings, count: Math.min(settings.count || 5, 10) });
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     if (!items.length) {
         return { text: `I couldn't make practice questions that pass the checks against your PDF. Try naming a topic, for example “quiz me on ${firstTopic(ctx) || 'a section title'}”.`, mode: 'study', topic: label ? { label } : null, meta: { answerability: 'study-failed', rejected } };
     }

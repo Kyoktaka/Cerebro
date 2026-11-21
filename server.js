@@ -18,8 +18,11 @@ const {
     embedTexts
 } = require('./local-ai');
 const { documentAnswer } = require('./document-answers');
+<<<<<<< HEAD
 const { createSessionStore } = require('./sessions');
 const { hashPassword, checkPassword, createThrottle } = require('./passwords');
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 const { extractDocument } = require('./engine/pdf');
 const { packDocuments, parsePdfContent, originalDir, saveOriginals, upgradeDocuments } = require('./engine/documents');
 const { buildIndex, indexCovers, dropDocument, embeddingPrefixes } = require('./engine/indexer');
@@ -45,10 +48,17 @@ const uploadsDir = path.join(dataDir, 'uploads');
 const indexesDir = path.join(dataDir, 'indexes');
 for (const dir of [usersDir, uploadsDir, indexesDir]) fs.mkdirSync(dir, { recursive: true });
 
+<<<<<<< HEAD
 const MAX_PDFS_PER_CONVERSATION = 10;
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MAX_TOTAL_CHARS = 1000000;
 const MAX_MESSAGE_CHARS = 4000;
+=======
+const userSessions = new Map();
+const MAX_PDFS_PER_CONVERSATION = 10;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_TOTAL_CHARS = 1000000;
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 
 function getUserFilePath(lastName) {
     return path.join(usersDir, `${lastName.replace(/[^a-zA-Z0-9.]/g, '')}.json`);
@@ -124,9 +134,13 @@ function loadIndex(user, conversationId) {
     if (cached && cached.mtimeMs === stat.mtimeMs) return cached.index;
     try {
         const index = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+<<<<<<< HEAD
         if (!Array.isArray(index.chunks)) return null;
         remember(filePath, stat.mtimeMs, index);
         return index;
+=======
+        return Array.isArray(index.chunks) ? index : null;
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     } catch (error) {
         console.error('PDF index load error:', error);
         return null;
@@ -144,9 +158,13 @@ function saveIndex(user, conversationId, index) {
 
 function deleteIndex(user, conversationId) {
     const filePath = getIndexPath(user, conversationId);
+<<<<<<< HEAD
     if (!filePath) return;
     indexCache.delete(filePath);
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+=======
+    if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 }
 
 function setSessionConversation(session, conversation, conversationId) {
@@ -586,7 +604,11 @@ app.get('/api/conversations/:sessionId/:conversationId', (req, res) => {
 });
 
 app.get('/api/conversations/:sessionId/:conversationId/outline', async (req, res) => {
+<<<<<<< HEAD
     const session = sessions.get(req.params.sessionId);
+=======
+    const session = userSessions.get(req.params.sessionId);
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     if (!session || !session.user) return res.status(401).json({ error: 'Unauthorized' });
     const conversation = loadUser(session.user.lastName)?.conversations?.find(c => c.id === req.params.conversationId);
     if (!conversation) return res.status(404).json({ error: 'Conversation not found.' });
@@ -905,7 +927,11 @@ app.post('/api/chat', async (req, res) => {
         }
         const models = await listModels();
         const selectedModel = installedModel(models, req.body.model || OLLAMA_MODEL);
+<<<<<<< HEAD
         const capabilities = await requireCapability(selectedModel, 'completion');
+=======
+        await requireCapability(selectedModel, 'completion');
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 
         if (await upgradeConversation(session, conversationId)) {
             conversation = loadUser(session.user.lastName)?.conversations?.find(c => c.id === conversationId) || conversation;
@@ -923,7 +949,11 @@ app.post('/api/chat', async (req, res) => {
         if (scope.error) return finish(scope.error, 'study', update);
         if (!scope.names.length) return finish('Select a PDF in Sources before asking a question.', 'study', update);
 
+<<<<<<< HEAD
         const model = createModel(selectedModel, controller.signal, { thinking: capabilities.includes('thinking') });
+=======
+        const model = createModel(selectedModel, controller.signal);
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         const practice = conversation?.practice;
         if (practice && practice.names.every(name => scope.names.includes(name)) && isPracticeReply(practice, scope.query)) {
             const result = await advancePractice(model, practice, scope.query);
@@ -956,7 +986,10 @@ app.post('/api/chat', async (req, res) => {
                 return null;
             }
         };
+<<<<<<< HEAD
         let summariesChanged = false;
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         const context = topicReset ? {} : conversation ? (conversation.context || {}) : (session.chatContext || {});
         const result = await respond({
             index,
@@ -969,9 +1002,15 @@ app.post('/api/chat', async (req, res) => {
             sourceMode: sourceMode === 'pdf-only' ? 'pdf-only' : null,
             onStatus: out.status,
             onDraft: out.draft,
+<<<<<<< HEAD
             onCache: () => { summariesChanged = true; }
         });
         if (summariesChanged && conversationId) saveIndex(session.user, conversationId, index);
+=======
+            onCache: () => conversationId && saveIndex(session.user, conversationId, index)
+        });
+        if (index.summaries && conversationId) saveIndex(session.user, conversationId, index);
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         const nextContext = result.topic ? { activeTopic: result.topic, updatedAt: new Date().toISOString() } : null;
         return finish(result.text, result.mode, {
             ...update,

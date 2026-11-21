@@ -46,7 +46,11 @@ const sourceMode = () => localStorage.getItem('cerebro_source_mode') === 'pdf-on
 async function api(path, options = {}) {
     const response = await fetch(API_BASE_URL + path, {
         ...options,
+<<<<<<< HEAD
         headers: options.body instanceof FormData ? { 'X-Session-Id': sessionId } : options.body ? { 'Content-Type': 'application/json' } : undefined,
+=======
+        headers: options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : undefined,
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         body: options.body && !(options.body instanceof FormData) ? JSON.stringify(options.body) : options.body
     });
     const data = await response.json().catch(() => ({}));
@@ -120,8 +124,12 @@ window.addEventListener('resize', () => {
 
 function setPill(stateName, text) {
     ui.pill.dataset.state = stateName;
+<<<<<<< HEAD
     // "hf.co/unsloth/Qwen3-4B-GGUF:Q4_K_M" reads as "Qwen3-4B-GGUF:Q4_K_M"; the tooltip keeps the full name.
     ui.pillText.textContent = text.split('/').pop();
+=======
+    ui.pillText.textContent = text;
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     ui.pill.title = text;
 }
 
@@ -251,7 +259,11 @@ async function createConversation() {
         await openConversation(data.conversationId);
         ui.input.focus();
     } catch (error) {
+<<<<<<< HEAD
         if (error.status === 401) return signOutLocally(true);
+=======
+        if (error.status === 401) return signOutLocally();
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         toast(error.message);
     }
 }
@@ -280,7 +292,11 @@ async function openConversation(id) {
         if (narrow()) setRail(false);
         if (state.pdfNames.length) loadOutline(version);
     } catch (error) {
+<<<<<<< HEAD
         if (error.status === 401) return signOutLocally(true);
+=======
+        if (error.status === 401) return signOutLocally();
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         toast('That chat could not be opened.');
     }
 }
@@ -485,7 +501,10 @@ async function uploadFiles(files) {
         if (!state.messages.length) renderThread();
         if (!overlayWidth()) setSources(true);
     } catch (error) {
+<<<<<<< HEAD
         if (error.status === 401) return signOutLocally(true);
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         notice.classList.replace('notice', 'error');
         notice.querySelector('.message-body').textContent = `Couldn't add the PDF. ${error.message}`;
     } finally {
@@ -762,7 +781,11 @@ async function send(text) {
             appendMessage({ role: 'notice', content: 'Stopped. Nothing was saved for that question.' });
         } else {
             appendMessage({ role: 'error', content: error.message });
+<<<<<<< HEAD
             if (error.status === 401) return signOutLocally(true);
+=======
+            if (error.status === 401) return signOutLocally();
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
             if (/ollama|model|reach/i.test(error.message)) loadModels();
         }
         state.messages.pop();
@@ -854,10 +877,17 @@ document.addEventListener('keydown', event => {
 
 // ------------------------------------------------------------------ settings and account
 
+<<<<<<< HEAD
 function signOutLocally(expired = false) {
     localStorage.removeItem('cerebro_session');
     localStorage.removeItem('cerebro_user');
     window.location.href = expired ? 'login.html?expired=1' : 'login.html';
+=======
+function signOutLocally() {
+    localStorage.removeItem('cerebro_session');
+    localStorage.removeItem('cerebro_user');
+    window.location.href = 'login.html';
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 }
 
 function openSettings() {

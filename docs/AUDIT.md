@@ -61,6 +61,7 @@ Not run: any test against a real Ollama model. Model downloads are blocked in th
 - The answer cache and section notes grow the index file for long documents.
 - Interactive quiz state is server-side per conversation; quiz sets and flashcard decks keep progress only while the page is open, and say so.
 
+<<<<<<< HEAD
 ## 6. Second pass: sign-outs, reasoning models, black-and-white theme
 
 ### Random sign-outs and "Session not found" on upload
@@ -122,3 +123,9 @@ Covered by an integration test (a thinking-capable mock model) and a unit test o
 
 - The session id still travels in some URLs (`GET /api/conversations/:sessionId`), which puts it in local server logs. The app binds to 127.0.0.1 by default.
 - The password reset uses the account email as proof because an offline app cannot send email. Anyone who knows both your last name and your email can reset your password on that machine.
+=======
+## 6. Known issues outside this scope
+
+- Passwords are stored in plaintext and `/api/auth/forgot-password` returns them. Sessions live in memory and the session id travels in URLs. These are security problems in the existing account design; changing them changes the sign-in workflow, so they were left as they were and are flagged here.
+- `/api/auth/register` does not validate missing fields server-side.
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d

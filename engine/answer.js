@@ -12,6 +12,7 @@ function documentsIn(index, names) {
     return (index.documents || []).filter(doc => names.includes(doc.name));
 }
 
+<<<<<<< HEAD
 // Top-level titles first, taken in turn from each document, so a list of
 // "what your PDFs cover" is not just the first document's opening sections.
 function subjectsOf(index, names, max = 8) {
@@ -27,6 +28,16 @@ function subjectsOf(index, names, max = 8) {
         }
     }
     return titles;
+=======
+function subjectsOf(index, names, max = 8) {
+    const titles = [];
+    for (const doc of documentsIn(index, names)) {
+        for (const section of doc.sections) {
+            if (section.title && section.level <= 2 && !titles.includes(section.title)) titles.push(section.title);
+        }
+    }
+    return titles.slice(0, max);
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
 }
 
 function subjectLine(index, names) {
@@ -87,7 +98,11 @@ function unrelated(index, names) {
     // document lacks it.
     const note = extractionNote(index, names);
     return `I couldn't find that in your selected PDF${names.length > 1 ? 's' : ''}.` +
+<<<<<<< HEAD
         (topics.length ? ` ${names.length > 1 ? 'They cover' : 'It covers'} ${topics.join(', ')}`.replace(/[^.?!]$/, '$&.') : '') +
+=======
+        (topics.length ? ` ${names.length > 1 ? 'They cover' : 'It covers'} ${topics.join(', ')}.` : '') +
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
         (note ? `\n\n${note} The answer might be on ${/pages/.test(note) ? 'those pages' : 'that page'}.` : '') +
         `\n\nAsk about one of those topics, or add "use general knowledge" to your question if you want a general answer that isn't based on your PDF.`;
 }
@@ -127,6 +142,7 @@ async function retrieveFor({ index, names, question, topic, vectorFor, model, on
             const expanded = [queryText, ...keywords].join(' ');
             const retry = search(index, { names, query: expanded, vector: await vectorFor(expanded), limit: QA_LIMIT, budget: QA_BUDGET, relaxed: true });
             const retryEvidence = assess(retry.passages, contentTerms(expanded), retry.topics);
+<<<<<<< HEAD
             const fresh = retry.passages.filter(passage => !result.passages.some(kept => kept.id === passage.id));
             if (retryEvidence.strength !== 'none' && (fresh.length || retryEvidence.coverage >= evidence.coverage)) {
                 // Keep what the first search found and add the new passages,
@@ -142,6 +158,11 @@ async function retrieveFor({ index, names, question, topic, vectorFor, model, on
                 // Synonyms the model supplied count as matches here.
                 evidence = assess(merged, contentTerms(expanded), result.topics);
                 if (evidence.strength === 'strong') evidence.strength = 'partial';
+=======
+            if (retryEvidence.strength !== 'none' && retryEvidence.coverage >= evidence.coverage) {
+                result = retry;
+                evidence = { ...retryEvidence, strength: retryEvidence.strength === 'strong' ? 'partial' : retryEvidence.strength };
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
                 stage = 3;
             }
         }
@@ -206,9 +227,12 @@ async function answerQuestion(ctx) {
         ? { passages: ctx.fixedPassages, evidence: { strength: 'strong', coverage: 1, missing: [] }, topics: [], stage: 0 }
         : await retrieveFor({ index, names, question: message, topic, vectorFor: ctx.vectorFor, model, onStatus, definitional: ['define', 'explain'].includes(parsed.intent) });
     const { evidence, passages } = retrieval;
+<<<<<<< HEAD
     if (!passages.length && sourceMode !== 'general') {
         return { text: unrelated(index, names), mode: 'unrelated', topic: null, meta: { answerability: 'retrieval-empty', evidence, stage: retrieval.stage } };
     }
+=======
+>>>>>>> 904ba39d7f3dbe823e744c8ab0f1ff7d4598e29d
     const mode = sourceMode || (evidence.strength === 'strong' || evidence.strength === 'partial' ? 'covered' : 'uncertain');
     const intent = parsed.intent === 'continue' && !history.length ? 'explain' : parsed.intent;
     const system = answerSystem(intent, mode, subjectsOf(index, names).join(', '));
