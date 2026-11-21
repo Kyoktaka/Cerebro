@@ -24,7 +24,8 @@ async function request(endpoint, options = {}) {
     let response;
     try {
         response = await fetch(`${OLLAMA_BASE_URL}${endpoint}`, options);
-    } catch {
+    } catch (error) {
+        if (error?.name === 'TimeoutError' || error?.name === 'AbortError') throw error;
         throw new OllamaError(`Cannot reach Ollama at ${OLLAMA_BASE_URL}. Start Ollama and check OLLAMA_BASE_URL.`);
     }
 
@@ -53,7 +54,14 @@ async function listModels() {
         .filter(item => item.name && !item.name.endsWith(':cloud'));
 }
 
+// Every chat message checks the model, so a short cache saves a round trip
+// without hiding a model that was re-pulled for long.
+const capabilityCache = new Map();
+const CAPABILITY_TTL_MS = 60 * 1000;
+
 async function modelCapabilities(model) {
+    const cached = capabilityCache.get(model);
+    if (cached && Date.now() - cached.at < CAPABILITY_TTL_MS) return cached.capabilities;
     const response = await request('/api/show', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -64,6 +72,7 @@ async function modelCapabilities(model) {
     if (!Array.isArray(body.capabilities)) {
         throw new OllamaError(`Ollama cannot report capabilities for "${model}". Update Ollama.`, 502);
     }
+    capabilityCache.set(model, { at: Date.now(), capabilities: body.capabilities });
     return body.capabilities;
 }
 
@@ -87,6 +96,7 @@ async function requireCapability(model, capability) {
     if (!capabilities.includes(capability)) {
         throw new OllamaError(`"${model}" does not support ${capability}. Select a compatible model.`, 422);
     }
+    return capabilities;
 }
 
 function installedModel(models, name) {
@@ -105,8 +115,8 @@ function installedModel(models, name) {
 
 async function embedTexts(texts, model = OLLAMA_EMBED_MODEL) {
     const all = [];
-    for (let i = 0; i < texts.length; i += 12) {
-        const batch = texts.slice(i, i + 12);
+    for (let i = 0; i < texts.length; i += 24) {
+        const batch = texts.slice(i, i + 24);
         const response = await request('/api/embed', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -123,13 +133,35 @@ async function embedTexts(texts, model = OLLAMA_EMBED_MODEL) {
     return all;
 }
 
-async function openChat(model, messages, stream, signal, format) {
-    return request('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model, messages, stream, ...(format ? { format } : {}), options: { num_ctx: OLLAMA_NUM_CTX, ...(format ? { temperature: 0 } : {}) } }),
-        signal
-    });
+const timeoutSetting = Number.parseInt(process.env.CEREBRO_LLM_TIMEOUT_MS || '', 10);
+const OLLAMA_TIMEOUT_MS = Number.isInteger(timeoutSetting) && timeoutSetting >= 10000 ? timeoutSetting : 300000;
+
+function withTimeout(signal, ms) {
+    const timeout = AbortSignal.timeout(ms);
+    if (!signal) return timeout;
+    return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : signal;
+}
+
+// `think` is sent only for models that report the thinking capability:
+// false keeps reasoning models (Qwen3, DeepSeek-R1) from spending the time
+// budget on hidden reasoning and from breaking JSON output.
+async function openChat(model, messages, stream, signal, format, options = {}, think) {
+    try {
+        return await request('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model, messages, stream, ...(format ? { format } : {}), ...(typeof think === 'boolean' ? { think } : {}),
+                options: { num_ctx: OLLAMA_NUM_CTX, ...(format ? { temperature: 0 } : {}), ...options }
+            }),
+            signal: withTimeout(signal, OLLAMA_TIMEOUT_MS)
+        });
+    } catch (error) {
+        if (error?.name === 'TimeoutError' || (signal?.aborted === false && error?.name === 'AbortError')) {
+            throw new OllamaError(`The local model took longer than ${Math.round(OLLAMA_TIMEOUT_MS / 1000)} seconds. Try a smaller model or a shorter request.`, 504);
+        }
+        throw error;
+    }
 }
 
 async function readChatStream(response, onDelta) {
@@ -175,6 +207,7 @@ module.exports = {
     OLLAMA_MODEL,
     OLLAMA_EMBED_MODEL,
     OLLAMA_NUM_CTX,
+    OLLAMA_TIMEOUT_MS,
     parseContext,
     OllamaError,
     modelMatches,

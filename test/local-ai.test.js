@@ -54,11 +54,11 @@ test('embedding requests use the current batch endpoint', async () => {
         return new Response(JSON.stringify({ embeddings: body.input.map(() => [1, 0]) }), { status: 200 });
     };
     try {
-        const vectors = await embedTexts(Array.from({ length: 13 }, (_, i) => `text ${i}`));
-        assert.equal(vectors.length, 13);
+        const vectors = await embedTexts(Array.from({ length: 25 }, (_, i) => `text ${i}`));
+        assert.equal(vectors.length, 25);
         assert.equal(calls.length, 2);
         assert.ok(calls.every(call => call.url.endsWith('/api/embed')));
-        assert.deepEqual(calls.map(call => call.body.input.length), [12, 1]);
+        assert.deepEqual(calls.map(call => call.body.input.length), [24, 1]);
     } finally {
         global.fetch = originalFetch;
     }
@@ -100,4 +100,29 @@ test('chat stream handles split NDJSON frames and a terminal error', async () =>
 
     const failure = new Response('{"error":"model unloaded"}\n', { status: 200 });
     await assert.rejects(() => readChatStream(failure, () => {}), /model unloaded/);
+});
+
+test('reasoning models: hidden reasoning is stripped and a runaway is retried once', async () => {
+    const { createModel } = require('../engine/llm');
+    const originalFetch = global.fetch;
+    const bodies = [];
+    const ndjson = parts => new Response(parts.map(content => JSON.stringify({ message: { content }, done: false })).join('\n') + '\n' + JSON.stringify({ done: true }) + '\n', { status: 200 });
+    global.fetch = async (url, options) => {
+        const body = JSON.parse(options.body);
+        bodies.push(body);
+        const prompt = body.messages.at(-1).content;
+        return prompt.endsWith('/no_think') ? ndjson(['RAM is ', 'working memory.']) : ndjson(['<think>Let me think', ' about this at length']);
+    };
+    try {
+        const model = createModel('hf.co/unsloth/Qwen3-4B-GGUF:Q4_K_M', undefined, { thinking: true });
+        const shown = [];
+        const answer = await model.text('system', 'What is RAM?', { onDelta: delta => shown.push(delta) });
+        assert.equal(answer, 'RAM is working memory.');
+        assert.equal(bodies.length, 2);
+        assert.equal(bodies[0].think, false);
+        assert.equal(bodies[1].options.num_predict, 1800, 'the retry gets a larger budget');
+        assert.doesNotMatch(shown.filter(Boolean).join(''), /think/);
+    } finally {
+        global.fetch = originalFetch;
+    }
 });

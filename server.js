@@ -17,14 +17,18 @@ const {
     installedModel,
     embedTexts
 } = require('./local-ai');
-const { resolveDocumentScope, isFollowup } = require('./rag');
-const { queryVariants, choosePassages } = require('./retrieval');
-const { rankByKeywords } = require('./hybrid');
-const { isDocumentOverview, selectedOverviewChunks, sourceOverview } = require('./overview');
-const { modelCaller, tutorAnswer, review, passages, location } = require('./tutor');
-const { studyRequest, buildStudy, studySet, advanceQuiz, questionAt, shortfall } = require('./study');
 const { documentAnswer } = require('./document-answers');
-const { extractDocument, documentChunks, packDocuments, originalDir, saveOriginals } = require('./pdf-source');
+const { createSessionStore } = require('./sessions');
+const { hashPassword, checkPassword, createThrottle } = require('./passwords');
+const { extractDocument } = require('./engine/pdf');
+const { packDocuments, parsePdfContent, originalDir, saveOriginals, upgradeDocuments } = require('./engine/documents');
+const { buildIndex, indexCovers, dropDocument, embeddingPrefixes } = require('./engine/indexer');
+const { analyzeDocument } = require('./engine/structure');
+const { resolveDocumentScope } = require('./engine/scope');
+const { respond, classify } = require('./engine');
+const { createModel } = require('./engine/llm');
+const { advancePractice } = require('./engine/study');
+const { historyFor } = require('./engine/answer');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -35,37 +39,52 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/vendor/fontawesome', express.static(path.join(__dirname, 'node_modules', '@fortawesome', 'fontawesome-free')));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const usersDir = path.join(__dirname, 'users');
-const uploadsDir = path.join(__dirname, 'uploads');
-const indexesDir = path.join(__dirname, 'indexes');
-if (!fs.existsSync(usersDir)) fs.mkdirSync(usersDir);
-if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir);
-if (!fs.existsSync(indexesDir)) fs.mkdirSync(indexesDir);
+const dataDir = process.env.CEREBRO_DATA_DIR ? path.resolve(process.env.CEREBRO_DATA_DIR) : __dirname;
+const usersDir = path.join(dataDir, 'users');
+const uploadsDir = path.join(dataDir, 'uploads');
+const indexesDir = path.join(dataDir, 'indexes');
+for (const dir of [usersDir, uploadsDir, indexesDir]) fs.mkdirSync(dir, { recursive: true });
 
-const userSessions = new Map();
+const MAX_PDFS_PER_CONVERSATION = 10;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_TOTAL_CHARS = 1000000;
+const MAX_MESSAGE_CHARS = 4000;
 
 function getUserFilePath(lastName) {
     return path.join(usersDir, `${lastName.replace(/[^a-zA-Z0-9.]/g, '')}.json`);
 }
 
 function loadUser(lastName) {
+    if (typeof lastName !== 'string') return null;
     const filePath = getUserFilePath(lastName);
-    if (fs.existsSync(filePath)) {
+    try {
         return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    } catch (error) {
+        if (error.code !== 'ENOENT') console.error('User file error:', filePath, error.message);
+        return null;
     }
-    return null;
 }
 
+// Write to a temp file and rename, so a crash mid-write never leaves a
+// half-written account file behind.
 function saveUser(user) {
-    fs.writeFileSync(getUserFilePath(user.lastName), JSON.stringify(user, null, 2));
+    const filePath = getUserFilePath(user.lastName);
+    const tempPath = `${filePath}.${process.pid}.tmp`;
+    fs.writeFileSync(tempPath, JSON.stringify(user, null, 2));
+    fs.renameSync(tempPath, filePath);
 }
+
+const sessions = createSessionStore(path.join(dataDir, 'sessions'), loadUser);
 
 function getAllUsers() {
     const users = [];
     const files = fs.readdirSync(usersDir);
     for (const file of files) {
-        if (file.endsWith('.json')) {
+        if (!file.endsWith('.json')) continue;
+        try {
             users.push(JSON.parse(fs.readFileSync(path.join(usersDir, file), 'utf8')));
+        } catch (error) {
+            console.error('User file error:', file, error.message);
         }
     }
     return users;
@@ -79,12 +98,35 @@ function getIndexPath(user, conversationId) {
     return path.join(indexesDir, `${userId}-${id}.json`);
 }
 
+// Parsed indexes are cached by path and modification time: an index with
+// embeddings can be many megabytes, and its keyword statistics are cached on
+// the object itself, so re-reading it on every message is wasted work.
+const indexCache = new Map();
+const INDEX_CACHE_SIZE = 12;
+
+function remember(filePath, mtimeMs, index) {
+    indexCache.delete(filePath);
+    indexCache.set(filePath, { mtimeMs, index });
+    if (indexCache.size > INDEX_CACHE_SIZE) indexCache.delete(indexCache.keys().next().value);
+}
+
 function loadIndex(user, conversationId) {
     const filePath = getIndexPath(user, conversationId);
-    if (!filePath || !fs.existsSync(filePath)) return null;
+    if (!filePath) return null;
+    let stat;
+    try {
+        stat = fs.statSync(filePath);
+    } catch {
+        indexCache.delete(filePath);
+        return null;
+    }
+    const cached = indexCache.get(filePath);
+    if (cached && cached.mtimeMs === stat.mtimeMs) return cached.index;
     try {
         const index = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-        return index.embeddingModel === OLLAMA_EMBED_MODEL && Array.isArray(index.chunks) ? index : null;
+        if (!Array.isArray(index.chunks)) return null;
+        remember(filePath, stat.mtimeMs, index);
+        return index;
     } catch (error) {
         console.error('PDF index load error:', error);
         return null;
@@ -97,30 +139,14 @@ function saveIndex(user, conversationId, index) {
     const tempPath = `${filePath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
     fs.writeFileSync(tempPath, JSON.stringify(index));
     fs.renameSync(tempPath, filePath);
+    remember(filePath, fs.statSync(filePath).mtimeMs, index);
 }
 
 function deleteIndex(user, conversationId) {
     const filePath = getIndexPath(user, conversationId);
-    if (filePath && fs.existsSync(filePath)) fs.unlinkSync(filePath);
-}
-
-function parsePdfContent(content, names, meta) {
-    if (Array.isArray(meta) && names.every(name => meta.some(doc => doc.name === name))) {
-        return meta.filter(doc => names.includes(doc.name)).map(doc => ({ ...doc, text: content.slice(doc.start, doc.end) }));
-    }
-    let cursor = 0;
-    const documents = [];
-    for (let i = 0; i < names.length; i++) {
-        const marker = `\n\n--- ${names[i]} ---\n\n`;
-        const start = content.indexOf(marker, cursor);
-        if (start === -1) continue;
-        const textStart = start + marker.length;
-        const nextMarker = i + 1 < names.length ? `\n\n--- ${names[i + 1]} ---\n\n` : null;
-        const end = nextMarker ? content.indexOf(nextMarker, textStart) : -1;
-        documents.push({ name: names[i], text: content.slice(textStart, end === -1 ? undefined : end) });
-        cursor = end === -1 ? content.length : end;
-    }
-    return documents;
+    if (!filePath) return;
+    indexCache.delete(filePath);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 }
 
 function setSessionConversation(session, conversation, conversationId) {
@@ -142,28 +168,15 @@ function syncRequestedConversation(session, conversationId) {
     return true;
 }
 
-async function indexDocuments(documents) {
-    const chunks = documents.flatMap(documentChunks);
-    const vectors = await embedTexts(chunks.map(chunk => chunk.text));
-    return chunks.map((chunk, i) => ({ ...chunk, embedding: vectors[i] }));
-}
-
-function indexCoversDocuments(index, names, meta) {
-    return index?.embeddingModel === OLLAMA_EMBED_MODEL && Array.isArray(index.chunks) &&
-        index.chunks.every(chunk => names.includes(chunk.pdfName) &&
-            chunk.digest === meta?.find(doc => doc.name === chunk.pdfName)?.digest) &&
-        names.every(name => index.chunks.some(chunk => chunk.pdfName === name));
-}
-
 async function ensurePdfIndex(session, conversationId, models) {
     const storedIndex = session.pdfIndex || loadIndex(session.user, conversationId);
-    if (indexCoversDocuments(storedIndex, session.pdfNames, session.pdfMeta)) {
+    if (indexCovers(storedIndex, session.pdfNames, session.pdfMeta, OLLAMA_EMBED_MODEL)) {
         session.pdfIndex = storedIndex;
         return storedIndex;
     }
     installedModel(models, OLLAMA_EMBED_MODEL);
     const documents = parsePdfContent(session.pdfContent, session.pdfNames, session.pdfMeta);
-    const index = { embeddingModel: OLLAMA_EMBED_MODEL, chunks: await indexDocuments(documents) };
+    const index = await buildIndex(documents, { embed: embedTexts, model: OLLAMA_EMBED_MODEL, previous: storedIndex });
     if (conversationId) {
         const current = loadUser(session.user.lastName)?.conversations?.find(item => item.id === conversationId);
         if (!current || current.pdfContent !== session.pdfContent || JSON.stringify(current.pdfMeta) !== JSON.stringify(session.pdfMeta))
@@ -172,6 +185,50 @@ async function ensurePdfIndex(session, conversationId, models) {
     }
     session.pdfIndex = index;
     return index;
+}
+
+// Conversations uploaded before the structured PDF reader are re-read from
+// their stored originals once, so old chats get headings and clean paragraphs.
+async function upgradeConversation(session, conversationId) {
+    if (!conversationId || !session.pdfNames.length) return false;
+    const documents = parsePdfContent(session.pdfContent, session.pdfNames, session.pdfMeta);
+    const upgraded = await upgradeDocuments(session.user, conversationId, documents, MAX_TOTAL_CHARS);
+    if (!upgraded) return false;
+    const { content, meta } = packDocuments(upgraded);
+    const user = loadUser(session.user.lastName);
+    const conversation = user?.conversations?.find(item => item.id === conversationId);
+    if (!conversation || conversation.pdfContent !== session.pdfContent) return false;
+    conversation.pdfContent = content;
+    conversation.pdfMeta = meta;
+    saveUser(user);
+    setSessionConversation(session, conversation, conversationId);
+    return true;
+}
+
+const analysisCache = new Map();
+
+function documentOutline(doc, index) {
+    const indexed = index?.documents?.find(item => item.name === doc.name && (item.digest || null) === (doc.digest || null));
+    const key = (doc.digest || doc.name) + ':' + (doc.version || 1);
+    let analysis = indexed || analysisCache.get(key);
+    if (!analysis) {
+        const { chunks: _chunks, ...rest } = analyzeDocument(doc);
+        analysis = rest;
+        analysisCache.set(key, analysis);
+        if (analysisCache.size > 200) analysisCache.delete(analysisCache.keys().next().value);
+    }
+    return {
+        name: doc.name,
+        digest: doc.digest || null,
+        pageCount: doc.pageCount || analysis.pageCount || null,
+        readablePages: doc.readablePages ?? analysis.readablePages ?? null,
+        imagePages: doc.imagePages || analysis.imagePages || [],
+        truncated: Boolean(doc.truncated),
+        sections: analysis.sections.filter(section => section.title).map(section => ({
+            id: section.id, title: section.title, level: Math.min(section.path.length, 3), page: section.pageStart ?? null, pageEnd: section.pageEnd ?? null
+        })),
+        terms: analysis.terms.slice(0, 16).map(term => term.term)
+    };
 }
 
 function errorStatus(error) {
@@ -218,15 +275,32 @@ app.get('/api/models', async (req, res) => {
 });
 
 // AUTH ENDPOINTS
-app.post('/api/auth/register', (req, res) => {
-    const { firstName, lastName, email, password } = req.body;
+const signInThrottle = createThrottle();
+const text = value => (typeof value === 'string' ? value.trim() : '');
+const usernameKey = name => name.replace(/[^a-zA-Z0-9.]/g, '').toLowerCase();
 
+app.post('/api/auth/register', (req, res) => {
+    const firstName = text(req.body.firstName);
+    const lastName = text(req.body.lastName);
+    const email = text(req.body.email).toLowerCase();
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+
+    if (!firstName || !lastName || !email || !password) {
+        return res.status(400).json({ error: 'Fill in every field.' });
+    }
+    if (!usernameKey(lastName)) {
+        return res.status(400).json({ error: 'Your last name needs at least one letter or number.' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ error: 'Enter a valid email address.' });
+    }
+    if (password.length < 6) {
+        return res.status(400).json({ error: 'Use at least 6 characters for your password.' });
+    }
     if (loadUser(lastName)) {
         return res.status(400).json({ error: 'Username already exists. Try adding your middle initial (e.g., ' + lastName + 'J)' });
     }
-    const allUsers = getAllUsers();
-    const emailExists = allUsers.some(user => user.email === email);
-    if (emailExists) {
+    if (getAllUsers().some(user => String(user.email || '').toLowerCase() === email)) {
         return res.status(400).json({ error: 'Email already registered. Please use a different email.' });
     }
 
@@ -235,7 +309,7 @@ app.post('/api/auth/register', (req, res) => {
         firstName,
         lastName,
         email,
-        password,
+        password: hashPassword(password),
         createdAt: new Date().toISOString(),
         conversations: []
     };
@@ -250,23 +324,26 @@ app.post('/api/auth/register', (req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
-    const { username, password } = req.body;
-    const user = getAllUsers().find(u => u.lastName === username && u.password === password);
-
-    if (!user) {
+    const username = text(req.body.username);
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+    const key = usernameKey(username);
+    if (!key || !password) return res.status(401).json({ error: 'Invalid credentials' });
+    if (signInThrottle.blocked(key)) {
+        return res.status(429).json({ error: 'Too many attempts. Wait 10 minutes and try again.' });
+    }
+    const user = loadUser(username);
+    const check = user && user.lastName === username ? checkPassword(user.password, password) : { ok: false };
+    if (!check.ok) {
+        signInThrottle.miss(key);
         return res.status(401).json({ error: 'Invalid credentials' });
     }
+    signInThrottle.clear(key);
+    if (check.legacy) {
+        user.password = hashPassword(password);
+        saveUser(user);
+    }
 
-    const sessionId = Date.now().toString() + Math.random().toString(36);
-    userSessions.set(sessionId, {
-        user,
-        pdfContent: '',
-        pdfNames: [],
-        activePdfNames: [],
-        uploadedPDFs: [],
-        pdfIndex: null,
-        currentConversationId: null
-    });
+    const sessionId = sessions.create(user);
 
     res.json({
         success: true,
@@ -275,13 +352,37 @@ app.post('/api/auth/login', (req, res) => {
     });
 });
 
+// Offline there is no email to send a reset link to, so the account's email
+// address is the proof. The old password is never shown.
+app.post('/api/auth/reset-password', (req, res) => {
+    const username = text(req.body.username);
+    const email = text(req.body.email).toLowerCase();
+    const password = typeof req.body.password === 'string' ? req.body.password : '';
+    const key = usernameKey(username);
+    if (!key || !email) return res.status(400).json({ error: 'Enter your username and the email on your account.' });
+    if (password.length < 6) return res.status(400).json({ error: 'Use at least 6 characters for your new password.' });
+    if (signInThrottle.blocked(key)) {
+        return res.status(429).json({ error: 'Too many attempts. Wait 10 minutes and try again.' });
+    }
+    const user = loadUser(username);
+    if (!user || user.lastName !== username || String(user.email || '').toLowerCase() !== email) {
+        signInThrottle.miss(key);
+        return res.status(400).json({ error: "That username and email don't match an account." });
+    }
+    signInThrottle.clear(key);
+    user.password = hashPassword(password);
+    saveUser(user);
+    sessions.removeUser(user.lastName);
+    res.json({ success: true });
+});
+
 app.post('/api/auth/logout', (req, res) => {
-    userSessions.delete(req.body.sessionId);
+    sessions.remove(req.body.sessionId);
     res.json({ success: true });
 });
 
 app.post('/api/auth/delete-account', (req, res) => {
-    const session = userSessions.get(req.body.sessionId);
+    const session = sessions.get(req.body.sessionId);
     if (session && session.user) {
         const user = loadUser(session.user.lastName);
         for (const conversation of user?.conversations || []) {
@@ -290,23 +391,14 @@ app.post('/api/auth/delete-account', (req, res) => {
         }
         const filePath = getUserFilePath(session.user.lastName);
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        userSessions.delete(req.body.sessionId);
+        sessions.removeUser(session.user.lastName);
     }
     res.json({ success: true });
 });
 
-app.post('/api/auth/forgot-password', (req, res) => {
-    const user = loadUser(req.body.lastName);
-    if (user) {
-        res.json({ success: true, password: user.password });
-    } else {
-        res.status(404).json({ error: 'User not found' });
-    }
-});
-
 // CONVERSATION MANAGEMENT
 app.get('/api/conversations/:sessionId', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session || !session.user) {
         return res.json({ conversations: [] });
     }
@@ -318,7 +410,7 @@ app.get('/api/conversations/:sessionId', (req, res) => {
 });
 
 app.post('/api/conversations/create', (req, res) => {
-    const session = userSessions.get(req.body.sessionId);
+    const session = sessions.get(req.body.sessionId);
     if (!session || !session.user) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -348,7 +440,7 @@ app.post('/api/conversations/create', (req, res) => {
 });
 
 app.post('/api/conversations/:sessionId/clear-pdfs', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session) return res.status(401).json({ error: 'Session not found' });
     const convId = req.body.conversationId;
     if (!syncRequestedConversation(session, convId)) {
@@ -368,6 +460,7 @@ app.post('/api/conversations/:sessionId/clear-pdfs', (req, res) => {
         const conversation = user.conversations?.find(c => c.id === convId);
         if (conversation) {
             delete conversation.practice;
+            delete conversation.context;
             delete conversation.pdfMeta;
             delete conversation.pdfContent;
             delete conversation.pdfNames;
@@ -379,7 +472,7 @@ app.post('/api/conversations/:sessionId/clear-pdfs', (req, res) => {
 });
 
 app.post('/api/conversations/:sessionId/focus-pdf', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session) return res.status(401).json({ error: 'Session not found' });
 
     const { conversationId, pdfNames: namesToKeep } = req.body;
@@ -398,7 +491,10 @@ app.post('/api/conversations/:sessionId/focus-pdf', (req, res) => {
             const user = loadUser(session.user.lastName);
             const conversation = user.conversations?.find(c => c.id === conversationId);
             if (conversation) {
-                if (JSON.stringify(conversation.activePdfNames) !== JSON.stringify(activePdfNames)) delete conversation.practice;
+                if (JSON.stringify(conversation.activePdfNames) !== JSON.stringify(activePdfNames)) {
+                    delete conversation.practice;
+                    delete conversation.context;
+                }
                 conversation.activePdfNames = activePdfNames;
                 saveUser(user);
             }
@@ -409,7 +505,7 @@ app.post('/api/conversations/:sessionId/focus-pdf', (req, res) => {
 });
 
 app.post('/api/conversations/:sessionId/delete-pdf', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session) return res.status(401).json({ error: 'Session not found' });
 
     const { conversationId, pdfName } = req.body;
@@ -431,11 +527,11 @@ app.post('/api/conversations/:sessionId/delete-pdf', (req, res) => {
     session.activePdfNames = (session.activePdfNames || []).filter(n => n !== pdfName);
     if (!session.activePdfNames.length) session.activePdfNames = [...updatedNames];
     session.uploadedPDFs = updatedNames;
-    const index = session.pdfIndex || loadIndex(session.user, conversationId);
-    if (index) {
-        index.chunks = index.chunks.filter(chunk => chunk.pdfName !== pdfName);
+    const storedIndex = session.pdfIndex || loadIndex(session.user, conversationId);
+    if (storedIndex) {
+        const index = Array.isArray(storedIndex.documents) ? dropDocument(storedIndex, pdfName) : null;
         session.pdfIndex = index;
-        if (updatedNames.length) saveIndex(session.user, conversationId, index);
+        if (index && updatedNames.length) saveIndex(session.user, conversationId, index);
         else deleteIndex(session.user, conversationId);
     }
 
@@ -445,6 +541,7 @@ app.post('/api/conversations/:sessionId/delete-pdf', (req, res) => {
             const conversation = user.conversations?.find(c => c.id === conversationId);
             if (conversation) {
                 delete conversation.practice;
+                delete conversation.context;
                 conversation.pdfMeta = meta;
                 if (removed?.digest && !meta.some(doc => doc.digest === removed.digest)) fs.rmSync(path.join(originalDir(session.user, conversationId), removed.digest), { force: true });
                 if (updatedNames.length === 0) {
@@ -466,7 +563,7 @@ app.post('/api/conversations/:sessionId/delete-pdf', (req, res) => {
 });
 
 app.get('/api/conversations/:sessionId/:conversationId', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session || !session.user) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
@@ -483,12 +580,30 @@ app.get('/api/conversations/:sessionId/:conversationId', (req, res) => {
         messages: conversation.messages || [],
         pdfNames: conversation.pdfNames || [],
         activePdfNames: conversation.activePdfNames || conversation.pdfNames || [],
-        pdfCount: (conversation.pdfNames || []).length
+        pdfCount: (conversation.pdfNames || []).length,
+        context: conversation.context || null
     });
 });
 
+app.get('/api/conversations/:sessionId/:conversationId/outline', async (req, res) => {
+    const session = sessions.get(req.params.sessionId);
+    if (!session || !session.user) return res.status(401).json({ error: 'Unauthorized' });
+    const conversation = loadUser(session.user.lastName)?.conversations?.find(c => c.id === req.params.conversationId);
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found.' });
+    try {
+        setSessionConversation(session, conversation, req.params.conversationId);
+        await upgradeConversation(session, req.params.conversationId);
+        const documents = parsePdfContent(session.pdfContent, session.pdfNames, session.pdfMeta);
+        res.json({ documents: documents.map(doc => documentOutline(doc, session.pdfIndex)) });
+    } catch (error) {
+        console.error('Outline error:', error);
+        res.status(500).json({ error: 'Could not read the PDF outline.' });
+    }
+});
+
+
 app.put('/api/conversations/:sessionId/:conversationId', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session || !session.user) return res.status(401).json({ error: 'Unauthorized' });
 
     const user = loadUser(session.user.lastName);
@@ -504,7 +619,7 @@ app.put('/api/conversations/:sessionId/:conversationId', (req, res) => {
 });
 
 app.delete('/api/conversations/:sessionId/:conversationId', (req, res) => {
-    const session = userSessions.get(req.params.sessionId);
+    const session = sessions.get(req.params.sessionId);
     if (!session || !session.user) return res.status(401).json({ error: 'Unauthorized' });
 
     const user = loadUser(session.user.lastName);
@@ -526,9 +641,6 @@ app.delete('/api/conversations/:sessionId/:conversationId', (req, res) => {
 });
 
 // PDF UPLOAD
-const MAX_PDFS_PER_CONVERSATION = 10;
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const MAX_TOTAL_CHARS = 1000000;
 const upload = multer({
     dest: uploadsDir,
     limits: { fileSize: MAX_FILE_SIZE, files: MAX_PDFS_PER_CONVERSATION },
@@ -543,6 +655,9 @@ const upload = multer({
 const acceptPDFs = upload.array('files');
 
 app.post('/api/upload', (req, res, next) => {
+    // Refuse before writing anything to disk when the sign-in is gone.
+    const header = req.get('x-session-id');
+    if (header && !sessions.get(header)) return res.status(401).json({ error: 'Session not found' });
     acceptPDFs(req, res, error => {
         if (!error) return next();
         for (const file of req.files || []) {
@@ -557,7 +672,7 @@ app.post('/api/upload', (req, res, next) => {
     });
 }, async (req, res) => {
     try {
-        const session = userSessions.get(req.body.sessionId);
+        const session = sessions.get(req.get('x-session-id') || req.body.sessionId);
         if (!session) return res.status(401).json({ error: 'Session not found' });
         if (!req.files?.length) return res.status(400).json({ error: 'Choose at least one PDF.' });
 
@@ -614,15 +729,8 @@ app.post('/api/upload', (req, res, next) => {
         const embeddingModel = installedModel(models, OLLAMA_EMBED_MODEL);
         await requireCapability(embeddingModel, 'embedding');
         const storedIndex = state.pdfIndex || loadIndex(session.user, conversationId);
-        const existingChunks = indexCoversDocuments(storedIndex, state.pdfNames, state.pdfMeta)
-            ? storedIndex.chunks
-            : await indexDocuments(existingDocuments);
-        const newChunks = await indexDocuments(newDocuments);
-        const index = {
-            embeddingModel: OLLAMA_EMBED_MODEL,
-            chunks: [...existingChunks, ...newChunks]
-        };
         const documents = [...existingDocuments, ...newDocuments];
+        const index = await buildIndex(documents, { embed: embedTexts, model: OLLAMA_EMBED_MODEL, previous: storedIndex });
         const { content: allText, meta } = packDocuments(documents);
         const fileNames = documents.map(document => document.name);
         let activePdfNames = [...new Set([...state.activePdfNames, ...incomingNames])];
@@ -668,7 +776,7 @@ app.post('/api/upload', (req, res, next) => {
             pdfCount: fileNames.length,
             maxPDFs: MAX_PDFS_PER_CONVERSATION,
             truncated: truncated,
-            extractedPages: newDocuments.map(doc => ({ name: doc.name, pages: doc.pageCount, readablePages: doc.readablePages }))
+            extractedPages: newDocuments.map(doc => ({ name: doc.name, pages: doc.pageCount, readablePages: doc.readablePages, imagePages: doc.imagePages }))
         });
 
     } catch (error) {
@@ -683,7 +791,7 @@ app.post('/api/upload', (req, res, next) => {
 
 app.post('/api/source', (req, res) => {
     const { sessionId, conversationId, digest } = req.body;
-    const session = userSessions.get(sessionId);
+    const session = sessions.get(sessionId);
     if (!session) return res.status(401).end();
     const conversation = loadUser(session.user.lastName)?.conversations?.find(c => c.id === conversationId);
     const selected = conversation?.activePdfNames || conversation?.pdfNames || [];
@@ -692,14 +800,22 @@ app.post('/api/source', (req, res) => {
 });
 
 function saveChatMessage(session, conversationId, message, answer, update) {
-    if (!conversationId || !session.user) return;
+    if (!conversationId || !session.user) {
+        if (update && 'context' in update) session.chatContext = update.context;
+        return;
+    }
     const user = loadUser(session.user.lastName);
     const conversation = user?.conversations?.find(c => c.id === conversationId);
     if (!conversation) throw new OllamaError('Conversation was deleted.', 409);
     if (update) {
         if (conversation.pdfContent !== update.content || JSON.stringify(conversation.activePdfNames || conversation.pdfNames) !== JSON.stringify(update.names) ||
             conversation.messages?.length !== update.turn) throw new OllamaError('Conversation changed. Please retry.', 409);
-        conversation.practice = update.practice;
+        if (update.practice) conversation.practice = update.practice;
+        else delete conversation.practice;
+        if ('context' in update) {
+            if (update.context) conversation.context = update.context;
+            else delete conversation.context;
+        }
     }
     conversation.messages = conversation.messages || [];
     conversation.messages.push({ role: 'user', content: message, timestamp: new Date().toISOString() });
@@ -711,26 +827,66 @@ function saveChatMessage(session, conversationId, message, answer, update) {
     saveUser(user);
 }
 
-function sendStudyAnswer(res, session, conversationId, message, answer, stream, mode = 'study', update) {
-    saveChatMessage(session, conversationId, message, answer, update);
-    if (stream === true) {
-        res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.write(`${JSON.stringify({ type: 'delta', content: answer })}\n`);
-        return res.end(`${JSON.stringify({ type: 'done', answer, mode })}\n`);
+// NDJSON stream: status and draft events while the local model works, then
+// the verified answer as one delta and a done event. Clients that only know
+// delta/done/error keep working.
+function responder(res, stream) {
+    let started = false;
+    const write = event => {
+        if (!stream || res.destroyed) return;
+        if (!started) {
+            res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.flushHeaders?.();
+            started = true;
+        }
+        res.write(`${JSON.stringify(event)}\n`);
+    };
+    return {
+        status: status => write({ type: 'status', stage: status.stage, detail: status.detail }),
+        draft: delta => write(delta === null ? { type: 'draft', reset: true } : { type: 'draft', content: delta }),
+        done(answer, mode, extra = {}) {
+            if (!stream) return res.json({ answer, mode, ...extra });
+            write({ type: 'delta', content: answer });
+            return res.end(`${JSON.stringify({ type: 'done', answer, mode, ...extra })}\n`);
+        }
+    };
+}
+
+// While a practice quiz is open, short replies are answers. A real question
+// ends the practice instead of being graded.
+function isPracticeReply(practice, text) {
+    if (/^(?:\(?[A-D]\)?[.)]?|hint|help|skip|pass|next|stop|end|cancel|quit|idk|i don'?t know)(?:\s+quiz)?[.!?]?$/i.test(text.trim())) return true;
+    const item = practice.items?.[practice.index];
+    if (!item) return false;
+    if (item.choices?.length) {
+        return item.choices.some(choice => choice.toLowerCase() === text.trim().toLowerCase()) ||
+            (!text.includes('?') && text.trim().split(/\s+/).length <= 4);
     }
-    return res.json({ answer, mode });
+    return !text.includes('?') && text.trim().split(/\s+/).length <= 12 && !['quiz', 'flashcards', 'summary', 'study-guide'].includes(classify(text).intent);
+}
+
+function publicMeta(meta = {}) {
+    const { evidence, report, passages: _passages, rejected: _rejected, ...rest } = meta;
+    return {
+        ...rest,
+        ...(evidence ? { evidence: { strength: evidence.strength, coverage: Number(evidence.coverage?.toFixed?.(2) ?? evidence.coverage) } } : {}),
+        ...(report ? { checks: { cited: report.cited, supported: report.supported, removed: report.removed } } : {})
+    };
 }
 
 app.post('/api/chat', async (req, res) => {
     const controller = new AbortController();
     res.on('close', () => controller.abort());
     try {
-        const { message, sessionId, conversationId, stream } = req.body;
+        const { message, sessionId, conversationId, stream, sourceMode, topicReset } = req.body;
         if (typeof message !== 'string' || !message.trim()) {
             return res.status(400).json({ error: 'Enter a message.' });
         }
-        const session = userSessions.get(sessionId);
+        if (message.length > MAX_MESSAGE_CHARS) {
+            return res.status(400).json({ error: `Keep questions under ${MAX_MESSAGE_CHARS.toLocaleString('en')} characters. Upload long text as a PDF instead.` });
+        }
+        const session = sessions.get(sessionId);
         if (!session) return res.status(401).json({ error: 'Session not found' });
         let conversation = null;
         if (conversationId && session.user) {
@@ -738,6 +894,21 @@ app.post('/api/chat', async (req, res) => {
             conversation = user?.conversations?.find(c => c.id === conversationId);
             if (!conversation) return res.status(404).json({ error: 'Conversation not found.' });
             setSessionConversation(session, conversation, conversationId);
+        }
+        const out = responder(res, stream === true);
+        const finish = (answer, mode, update, extra) => {
+            saveChatMessage(session, conversationId, message, answer, update);
+            return out.done(answer, mode, extra);
+        };
+        if (!session.pdfNames.length) {
+            return finish('Upload a PDF to ask questions or create study materials.', 'normal');
+        }
+        const models = await listModels();
+        const selectedModel = installedModel(models, req.body.model || OLLAMA_MODEL);
+        const capabilities = await requireCapability(selectedModel, 'completion');
+
+        if (await upgradeConversation(session, conversationId)) {
+            conversation = loadUser(session.user.lastName)?.conversations?.find(c => c.id === conversationId) || conversation;
         }
         const pdfContext = {
             user: session.user,
@@ -747,95 +918,67 @@ app.post('/api/chat', async (req, res) => {
             activePdfNames: [...(session.activePdfNames || session.pdfNames)],
             pdfIndex: session.pdfIndex
         };
-        const hasPDF = pdfContext.pdfNames.length > 0;
-        if (!hasPDF) {
-            return sendStudyAnswer(res, session, conversationId, message, 'Upload a PDF to ask questions or create study materials.', stream, 'normal');
-        }
-        const models = await listModels();
-        const selectedModel = installedModel(models, req.body.model || OLLAMA_MODEL);
-        await requireCapability(selectedModel, 'completion');
+        const scope = resolveDocumentScope(message, pdfContext.pdfNames, pdfContext.activePdfNames);
+        const update = { content: pdfContext.pdfContent, names: pdfContext.activePdfNames, turn: conversation?.messages?.length, scope: scope.names };
+        if (scope.error) return finish(scope.error, 'study', update);
+        if (!scope.names.length) return finish('Select a PDF in Sources before asking a question.', 'study', update);
 
-        if (hasPDF) {
-            const scope = resolveDocumentScope(message, pdfContext.pdfNames, pdfContext.activePdfNames);
-            if (scope.error) return sendStudyAnswer(res, session, conversationId, message, scope.error, stream);
-            if (!scope.names.length) return sendStudyAnswer(res, session, conversationId, message, 'Select a PDF in Sources before asking a question.', stream);
-            const docs = parsePdfContent(pdfContext.pdfContent, pdfContext.pdfNames, pdfContext.pdfMeta).filter(doc => scope.names.includes(doc.name));
-            const update = { content: pdfContext.pdfContent, names: pdfContext.activePdfNames, turn: conversation?.messages?.length, scope: scope.names };
-            const respond = (answer, extra = {}) => sendStudyAnswer(res, session, conversationId, message, answer, stream, 'study', { ...update, ...extra });
-            const call = modelCaller(selectedModel, controller.signal);
-            const settings = studyRequest(scope.query);
-            if (conversation?.practice && !settings && conversation.practice.names.every(name => scope.names.includes(name))) {
-                const result = await advanceQuiz(call, conversation.practice, scope.query);
-                return respond(result.text, { practice: result.state });
-            }
-            const refusal = docs.some(doc => doc.incomplete)
-                ? "I couldn't reliably retrieve the information needed from this PDF. Some pages were unreadable or trimmed. Check the original or upload a clearer copy."
-                : 'I cannot answer that question because the requested information is not supported by your currently selected document. Please ask something related to the uploaded material.';
-            const embeddingModel = installedModel(models, OLLAMA_EMBED_MODEL);
-            await requireCapability(embeddingModel, 'embedding');
-            const index = await ensurePdfIndex(pdfContext, conversationId, models);
-            const selected = index.chunks.filter(c => scope.names.includes(c.pdfName));
-            if (!selected.length) return respond('No readable passages were available. Try a text-based PDF or OCR.');
-            const previous = conversation?.messages?.at(-1);
-            const followup = isFollowup(scope.query);
-            const sameScope = previous?.topic && JSON.stringify(previous.scope) === JSON.stringify(scope.names);
-            if (followup && !sameScope) return respond('Which term or passage would you like me to explain?');
-            const history = followup ? { question: previous.topic, answer: previous.content.slice(0, 1500) } : undefined;
-            const variants = queryVariants(scope.query, selected);
-            const query = [history?.question, scope.query, variants].filter(Boolean).join(' ');
-            const [vector] = await embedTexts([query], OLLAMA_EMBED_MODEL);
-            const comparison = /\b(compare|contrast|difference|different|similarities|differ|versus|vs)\b/i.test(message);
-            const ranked = choosePassages(selected, scope.names, vector, comparison, scope.query);
-            if (settings) {
-                if (!Number.isSafeInteger(settings.count) || settings.count < 1 || settings.count > 100)
-                    return respond('Choose between 1 and 100 items per study set.');
-                if (settings.interactive && !conversation) return respond('Open a saved conversation to start an interactive quiz.');
-                const pool = [...ranked, ...selected.filter(c => !ranked.some(r => r.pdfName === c.pdfName && r.text === c.text))];
-                const items = await buildStudy(call, settings, pool);
-                if (!items.length) return respond('I could not find suitable passages for a reviewed study set with those settings. Try another topic or format.');
-                if (!settings.interactive) return respond(studySet(items, settings.count));
-                const practice = { items, names: scope.names, index: 0, results: [], retry: false };
-                return respond(shortfall(items, settings.count) + questionAt(practice) + '\n\nReply with your answer, “hint”, “skip”, or “end quiz”.', { practice });
-            }
-            // Preserve the registration form's deterministic table parser.
-            const direct = documentAnswer(scope.query, docs);
-            const tableAnswer = direct && (/Registration summary|distinct subject codes|subject-code table|Subject codes found/.test(direct));
-            if (tableAnswer) {
-                // Review derived counts against rows from the same table, and excerpts in document order.
-                const relevant = selected.filter(c => c.text.split(/\n|(?<=[.!?])\s+/).some(line => {
-                    const prefix = line.trim().slice(0, 36);
-                    return prefix.length >= 4 && direct.includes(prefix);
-                }));
-                const context = (relevant.length ? relevant : ranked).slice(0, 6);
-                if ((await review(call, scope.query, direct, passages(context), 'Check each extracted detail and recompute any stated totals.')).approved) {
-                    return respond(direct + '\n\nReviewed sources\n' + [...new Set(context.map(c => location({ source: c.pdfName, page: c.page, digest: c.digest })))].join('\n'), { topic: scope.query });
-                }
-            }
-            const overview = isDocumentOverview(scope.query);
-            // A global explanation is not a keyword search. Give the model
-            // representative pages from every focused PDF, in document order.
-            const overviewPages = overview && !comparison
-                ? selectedOverviewChunks(selected, scope.names, Math.max(1, Math.floor(10 / scope.names.length)))
-                : [];
-            const context = overviewPages.length ? overviewPages : ranked;
-            const request = scope.query === 'summarize' && !/summari[sz]e/i.test(message) ? 'Summarize ' + message : message;
-            let answer = await tutorAnswer(call, request, context, history, comparison || overview ? scope.names : []);
-            // Progressive fallback: when a targeted question gets no supported
-            // answer from the primary hybrid retrieval, broaden to keyword-based
-            // recall before concluding the document lacks the information. This
-            // is a single bounded extra attempt, not an unbounded loop.
-            if (!answer && !overview && !comparison) {
-                const broader = rankByKeywords(selected, scope.names, scope.query);
-                if (broader.some(chunk => !context.some(prev => prev.pdfName === chunk.pdfName && prev.text === chunk.text))) {
-                    answer = await tutorAnswer(call, request, broader, history, []);
-                }
-            }
-            // A rejected generative summary must not turn a readable PDF into
-            // "unsupported". Offer strictly extractive, page-cited passages.
-            const fallback = overview && !answer?.text ? sourceOverview(context, scope.names) : null;
-            return respond(answer?.text || fallback || refusal, { topic: answer?.topic ? (history?.question || answer.topic) : undefined });
+        const model = createModel(selectedModel, controller.signal, { thinking: capabilities.includes('thinking') });
+        const practice = conversation?.practice;
+        if (practice && practice.names.every(name => scope.names.includes(name)) && isPracticeReply(practice, scope.query)) {
+            const result = await advancePractice(model, practice, scope.query);
+            return finish(result.text, 'practice', { ...update, practice: result.state });
         }
 
+        const docs = parsePdfContent(pdfContext.pdfContent, pdfContext.pdfNames, pdfContext.pdfMeta).filter(doc => scope.names.includes(doc.name));
+        // The registration form's table parser is deterministic arithmetic,
+        // more reliable than any model for counting rows and units.
+        const direct = documentAnswer(scope.query, docs);
+        if (direct && /Registration summary|distinct subject codes|subject-code table|Subject codes found/.test(direct)) {
+            const pages = docs.filter(doc => doc.digest).map(doc => `[${doc.name}, p. 1](cerebro:${doc.digest}:1)`);
+            return finish(direct + (pages.length ? '\n\nSource: ' + pages.join(' ') : ''), 'answer', update);
+        }
+
+        const embeddingModel = installedModel(models, OLLAMA_EMBED_MODEL);
+        await requireCapability(embeddingModel, 'embedding');
+        out.status({ stage: 'indexing', detail: 'Preparing your PDFs' });
+        const index = await ensurePdfIndex(pdfContext, conversationId, models);
+        if (!index.chunks.some(chunk => scope.names.includes(chunk.pdfName))) {
+            return finish('No readable text was found in the selected PDF. If it is a scan, run it through OCR and upload it again.', 'study', update);
+        }
+        const prefix = embeddingPrefixes(OLLAMA_EMBED_MODEL).query;
+        const vectorFor = async text => {
+            try {
+                return (await embedTexts([prefix + text], OLLAMA_EMBED_MODEL))[0];
+            } catch (error) {
+                if (controller.signal.aborted) throw error;
+                console.warn('Query embedding failed, using keyword search:', errorMessage(error));
+                return null;
+            }
+        };
+        let summariesChanged = false;
+        const context = topicReset ? {} : conversation ? (conversation.context || {}) : (session.chatContext || {});
+        const result = await respond({
+            index,
+            names: scope.names,
+            query: scope.query,
+            context,
+            model,
+            vectorFor,
+            history: historyFor(conversation?.messages || []),
+            sourceMode: sourceMode === 'pdf-only' ? 'pdf-only' : null,
+            onStatus: out.status,
+            onDraft: out.draft,
+            onCache: () => { summariesChanged = true; }
+        });
+        if (summariesChanged && conversationId) saveIndex(session.user, conversationId, index);
+        const nextContext = result.topic ? { activeTopic: result.topic, updatedAt: new Date().toISOString() } : null;
+        return finish(result.text, result.mode, {
+            ...update,
+            practice: result.state || null,
+            topic: result.topic?.label,
+            context: nextContext
+        }, { topic: result.topic || null, meta: publicMeta(result.meta) });
     } catch (error) {
         console.error('Chat error:', error);
         if (res.headersSent) {
@@ -848,6 +991,17 @@ app.post('/api/chat', async (req, res) => {
 
 app.get('/api/health', (req, res) => {
     res.json({ status: 'OK', message: 'Cerebro backend is running' });
+});
+
+app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
+
+// Bad JSON bodies and anything unexpected still get a JSON reply the page can show.
+app.use((error, req, res, next) => {
+    if (res.headersSent) return next(error);
+    if (error.type === 'entity.parse.failed') return res.status(400).json({ error: 'The request was not valid JSON.' });
+    if (error.type === 'entity.too.large') return res.status(413).json({ error: 'The request is too large.' });
+    console.error('Unexpected error:', error);
+    res.status(500).json({ error: 'Something went wrong on the server.' });
 });
 
 app.listen(PORT, HOST, async () => {

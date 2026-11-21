@@ -3,35 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light dark">
-    <title>Sign in | Cerebro</title>
+    <meta name="color-scheme" content="dark light">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
     <script src="js/theme.js"></script>
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/ultracave.css">
+    <link rel="stylesheet" href="css/cerebro.css">
+    <title>Sign in · Cerebro</title>
 </head>
-<body class="auth-page">
+<body>
     <a class="skip-link" href="#main">Skip to sign in</a>
-    <header class="auth-topbar">
-        <a href="index.html" class="auth-brand"><span class="logo-mark"><i class="fas fa-brain" aria-hidden="true"></i></span><span>Cerebro</span></a>
-        <button class="theme-toggle" type="button" data-theme-toggle><i class="fas fa-moon" aria-hidden="true"></i><span data-theme-label>Dark mode</span></button>
+    <header class="site-header">
+        <a href="index.html" class="brand"><svg class="brand-mark" viewBox="0 0 26 26" aria-hidden="true" focusable="false"><path d="M7 2.75h9.25L21 7.5v15.25H7a2 2 0 0 1-2-2V4.75a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/><path d="M16 3v4.75h4.75" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/><rect x="8.5" y="11.25" width="9" height="3.5" rx="1" fill="var(--mark-line)"/><path d="M8.75 18h7" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg> Cerebro</a>
+        <nav class="site-nav" aria-label="Main"><button class="icon-button" type="button" data-theme-toggle aria-label="Switch theme"><i class="fas fa-moon" aria-hidden="true"></i></button></nav>
     </header>
-    <main class="auth-wrapper" id="main">
-        <div class="auth-container">
-            <a href="index.html" class="back-home"><i class="fas fa-arrow-left" aria-hidden="true"></i> Home</a>
-            <section class="auth-card">
-                <div class="auth-header"><h1>Sign in to Cerebro</h1><p>Your AI study companion.</p></div>
-                <div id="errorMessage" class="error-message" role="alert" aria-live="assertive"></div>
-                <div id="successMessage" class="success-message" role="status" hidden>Account created. Sign in to continue.</div>
-                <form id="loginForm">
-                    <div class="input-group"><label for="username">Last name (username)</label><input type="text" id="username" name="username" autocomplete="username" placeholder="Your last name" required></div>
-                    <div class="input-group"><label for="password">Password</label><div class="password-field"><input type="password" id="password" name="password" autocomplete="current-password" required><button type="button" class="toggle-password" data-target="password" aria-label="Show password" aria-pressed="false">Show</button></div></div>
-                    <div class="auth-options"><button type="button" id="forgotPassword">Forgot password?</button></div>
-                    <button type="submit" class="btn-auth">Sign in</button>
-                </form>
-                <p class="auth-footer">New to Cerebro? <a href="register.html">Create an account</a></p>
-            </section>
-        </div>
+    <main class="auth-main" id="main">
+        <section class="auth-panel" aria-labelledby="loginTitle">
+            <h1 id="loginTitle">Sign in</h1>
+            <p>Pick up where you left off.</p>
+            <form id="loginForm" class="auth-form" novalidate>
+                <div id="successMessage" class="form-message is-success" role="status" hidden>Account created. Sign in to continue.</div>
+                <div id="errorMessage" class="form-message is-error" role="alert"></div>
+                <div class="field"><label for="username">Username (your last name)</label><input type="text" id="username" name="username" autocomplete="username" required></div>
+                <div class="field"><label for="password">Password</label><div class="password-field"><input type="password" id="password" name="password" autocomplete="current-password" required><button type="button" class="text-button toggle-password" data-target="password" aria-label="Show password" aria-pressed="false">Show</button></div></div>
+                <button type="button" class="text-button forgot" id="forgotPassword">Forgot password?</button>
+                <button type="submit" class="solid-button">Sign in</button>
+            </form>
+            <form id="resetForm" class="auth-form reset-form" novalidate hidden>
+                <h2>Reset your password</h2>
+                <p class="field-hint">Enter the email you signed up with and choose a new password. You'll be signed out on other devices.</p>
+                <div id="resetMessage" class="form-message is-error" role="alert"></div>
+                <div class="field"><label for="resetEmail">Email on your account</label><input type="email" id="resetEmail" name="email" autocomplete="email" required></div>
+                <div class="field"><label for="resetPassword">New password</label><div class="password-field"><input type="password" id="resetPassword" name="password" autocomplete="new-password" minlength="6" required><button type="button" class="text-button toggle-password" data-target="resetPassword" aria-label="Show password" aria-pressed="false">Show</button></div><p class="field-hint">At least 6 characters.</p></div>
+                <div class="reset-actions"><button type="submit" class="solid-button">Reset password</button><button type="button" class="text-button" id="resetCancel">Cancel</button></div>
+            </form>
+            <p class="auth-alt">New to Cerebro? <a href="register.html">Create an account</a></p>
+        </section>
     </main>
     <script src="js/auth.js"></script>
 </body>

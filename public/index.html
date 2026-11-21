@@ -3,39 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="light dark">
-    <title>Cerebro | Your AI study companion</title>
+    <meta name="color-scheme" content="dark light">
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
     <script src="js/theme.js"></script>
     <link rel="stylesheet" href="/vendor/fontawesome/css/all.min.css">
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="stylesheet" href="css/ultracave.css">
+    <link rel="stylesheet" href="css/cerebro.css">
+    <title>Cerebro · Study your PDFs, offline</title>
 </head>
-<body class="studio-home">
-    <a class="skip-link" href="#main">Skip to study prompt</a>
-    <header class="studio-header">
-        <a href="index.html" class="studio-brand"><span class="logo-mark"><i class="fas fa-brain" aria-hidden="true"></i></span> Cerebro</a>
-        <nav class="studio-nav" aria-label="Main navigation">
-            <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle theme"><i class="fas fa-moon" aria-hidden="true"></i><span data-theme-label>Dark mode</span></button>
-            <a href="chat.html">Workspace</a>
-            <div id="authButtons" class="auth-buttons"><a href="login.html" class="studio-signin">Sign in</a></div>
+<body>
+    <a class="skip-link" href="#main">Skip to the question box</a>
+    <header class="site-header">
+        <a href="index.html" class="brand"><svg class="brand-mark" viewBox="0 0 26 26" aria-hidden="true" focusable="false"><path d="M7 2.75h9.25L21 7.5v15.25H7a2 2 0 0 1-2-2V4.75a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/><path d="M16 3v4.75h4.75" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linejoin="round"/><rect x="8.5" y="11.25" width="9" height="3.5" rx="1" fill="var(--mark-line)"/><path d="M8.75 18h7" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"/></svg> Cerebro</a>
+        <nav class="site-nav" aria-label="Main">
+            <a href="about.html" class="hide-small">How it works</a>
+            <button class="icon-button" type="button" data-theme-toggle aria-label="Switch theme"><i class="fas fa-moon" aria-hidden="true"></i></button>
+            <span id="authButtons" class="site-nav"><a href="login.html">Sign in</a><a href="register.html" class="solid-button hide-small">Create account</a></span>
         </nav>
     </header>
-    <main class="studio-main" id="main">
-        <p class="studio-eyebrow">Your AI study companion</p>
-        <h1>What would you like to study?</h1>
-        <form class="studio-composer" id="homePromptForm">
-            <label for="homePrompt" class="chat-message-label">Ask a question</label>
-            <textarea id="homePrompt" name="prompt" rows="3" placeholder="Ask anything about your documents..." required></textarea>
-            <div class="studio-composer-actions"><span>Ask, learn, review.</span><button type="submit" class="studio-submit" aria-label="Continue to chat"><i class="fas fa-arrow-up" aria-hidden="true"></i></button></div>
-        </form>
-        <div class="studio-shortcuts" aria-label="Start studying">
-            <button type="button" data-home-action="upload"><i class="fas fa-paperclip" aria-hidden="true"></i> Upload PDF</button>
-            <button type="button" data-home-action="Quiz me interactively on the focused PDFs, one multiple-choice question at a time, with four options."><i class="fas fa-list-check" aria-hidden="true"></i> Create quiz</button>
-            <button type="button" data-home-action="Generate flashcards with clear front and back sides."><i class="far fa-rectangle-list" aria-hidden="true"></i> Flashcards</button>
-            <button type="button" data-home-action="Summarize the focused PDF documents."><i class="far fa-file-lines" aria-hidden="true"></i> Summarize</button>
+    <main class="home-main" id="main">
+        <div class="home-intro">
+            <h1>Ask your notes. See the page it came from.</h1>
+            <p>Cerebro reads the PDFs you study from, explains them in plain words, and quizzes you on them. Every answer points to the page that backs it up.</p>
+            <form class="home-composer" id="homePromptForm">
+                <label for="homePrompt" class="visually-hidden">Your question</label>
+                <textarea id="homePrompt" name="prompt" rows="3" placeholder="What do you want to understand? For example: explain network topologies" maxlength="4000" required></textarea>
+                <div class="home-composer-row">
+                    <span>You'll add your PDF on the next screen.</span>
+                    <button type="submit" class="solid-button">Start studying</button>
+                </div>
+            </form>
+            <ul class="home-facts">
+                <li><i class="fas fa-bookmark fact-icon" aria-hidden="true"></i><span><strong>Answers cite pages.</strong> Tap a page tab to open your PDF right there.</span></li>
+                <li><i class="fas fa-pencil fact-icon" aria-hidden="true"></i><span><strong>Extra explanations are labeled.</strong> Anything not in your PDF sits under "Beyond your PDF".</span></li>
+                <li><i class="fas fa-list-check fact-icon" aria-hidden="true"></i><span><strong>Quizzes are checked against the text.</strong> Questions whose answer the PDF doesn't support are thrown out.</span></li>
+                <li><i class="fas fa-laptop fact-icon" aria-hidden="true"></i><span><strong>Runs on your computer.</strong> Your documents stay with your local Ollama models.</span></li>
+            </ul>
         </div>
-        <p class="studio-caption">Cerebro runs through your local Ollama models. <a href="about.html">How it works</a></p>
     </main>
+    <footer class="site-footer"><span>Cerebro, a local study assistant</span></footer>
     <script src="js/main.js"></script>
 </body>
 </html>

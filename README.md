@@ -1,6 +1,6 @@
 # Cerebro
 
-Cerebro is a local PDF study app. It extracts text from your PDFs, uses local Ollama embeddings to find passages, and verifies model-selected quotations against the source. It generates answers and study sets, checks cited quotes, and sends each draft to a separate local model call for review. No cloud API key is required.
+Cerebro is an offline study assistant for the PDFs you learn from. It reads their structure, answers questions with page citations, explains ideas in plain words, and builds quizzes, flashcards and study guides from them. Everything runs on your computer through Ollama. No cloud API key is required.
 
 ## Start locally
 
@@ -8,7 +8,7 @@ Cerebro is a local PDF study app. It extracts text from your PDFs, uses local Ol
 2. Pull a chat model and an embedding model:
 
    ```sh
-   ollama pull llama3.2:3b or higher model if you have high end pc/devices
+   ollama pull llama3.2:3b   # or a larger model if your computer can run it
    ollama pull nomic-embed-text
    ```
 
@@ -30,6 +30,8 @@ Cerebro is a local PDF study app. It extracts text from your PDFs, uses local Ol
    npm start
    ```
 
+   `npm run dev` restarts the server when you edit its code. It ignores the data folders, so uploading a PDF or sending a message no longer restarts it, and sign-ins survive restarts either way.
+
 5. Open [http://127.0.0.1:8080](http://127.0.0.1:8080). Create a local account, open a chat, and select an installed chat model from the model picker.
 
 Ollama, the two models, Node.js, and npm dependencies must be installed while you have internet access. After that, normal local use does not need an internet connection. Ollama also offers cloud models; if you need to disable its cloud features, set `OLLAMA_NO_CLOUD=1` in Ollama's environment and restart Ollama. See [Ollama's local-only instructions](https://docs.ollama.com/faq#how-do-i-disable-ollamas-cloud-features).
@@ -47,28 +49,48 @@ OLLAMA_EMBED_MODEL=nomic-embed-text
 OLLAMA_NUM_CTX=8192
 ```
 
-`OLLAMA_BASE_URL` points to the Ollama instance Cerebro's Node server uses. `OLLAMA_MODEL` is the initial chat model; users can choose another pulled chat model in the app. `OLLAMA_EMBED_MODEL` is used for PDF indexing and search. `OLLAMA_NUM_CTX` sets the chat context window; 8192 tokens uses more memory than Ollama's default, so lower it on a constrained machine. Pull any model named here before use. Keep Cerebro and Ollama on a trusted machine or local network.
+Optional tuning, all with safe defaults:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `CEREBRO_CONTEXT_CHARS` | `12000` | Upper bound on passage text sent per model call. Also capped at about half of `OLLAMA_NUM_CTX`. |
+| `CEREBRO_LLM_TIMEOUT_MS` | `300000` | Longest time one model call may run before Cerebro stops it with a clear message. |
+| `CEREBRO_CHUNK_SIZE` | `1400` | Target characters per indexed passage. |
+| `CEREBRO_CHUNK_OVERLAP` | `180` | Characters of the previous passage repeated at the start of the next one in a section. |
+| `CEREBRO_DATA_DIR` | project folder | Where `users/`, `uploads/`, `indexes/` and `sessions/` are kept. |
+
+Changing `OLLAMA_EMBED_MODEL` or the chunk settings rebuilds each conversation's index the next time it is used.
+
+**Model choice matters more than any setting.** Cerebro works with any chat model Ollama lists, but code models such as `qwen2.5-coder:3b` were trained for programming, not explanation. For studying, a general instruction model teaches better and follows the citation rules more reliably, for example `qwen2.5:7b`, `llama3.1:8b` or `gemma2:9b` if your computer has the memory, or `llama3.2:3b` / `qwen2.5:3b` on smaller machines. Measure the difference with `npm run eval:live` (see Testing).
+
+**Reasoning models** such as Qwen3 or Qwen3.5 GGUF builds (`hf.co/unsloth/...`) work too. Cerebro turns their reasoning off (`think: false`) so the token budget goes to the answer, hides any `<think>…</think>` text a template still emits, and asks once more with `/no_think` if reasoning used up the whole budget. Long model names are shortened in the header; hover to see the full name.
 
 ## Use Cerebro
 
-- Upload a text-based PDF in a conversation. Cerebro extracts the text locally, divides it into passages, and embeds the passages through Ollama. Questions search those passages.
-- After uploading, the chat reports the number of pages with extractable text. Image-only pages still require OCR.
-- Whole-document summaries and "explain the main concepts" requests sample passages across the selected PDF pages. If the generated summary fails evidence verification, Cerebro shows clearly labeled excerpts with source citations instead of incorrectly claiming the PDF has no supported information.
-- The Sources bar shows the active PDF names. When one of two PDFs is selected, only that PDF is used for answers. Select additional files through Sources to compare or summarize them together.
-- Upload up to 10 PDFs per conversation, at most 10 MB each. Extracted text across the conversation is limited to 1,000,000 characters.
-- Select which uploaded PDFs to focus on or remove a PDF. Without a PDF, Cerebro asks you to upload one instead of answering from general knowledge.
-- Ask a question or enter a term. Cerebro checks quoted evidence against selected passages and independently reviews the answer. Each of five review scores must reach 9/10. A requested revision gets one more generation and review attempt.
-- Click a page citation to read the original PDF beside the conversation on wide screens, or in the full-screen PDF viewer on smaller devices. The browser PDF controls provide zoom and search. Older uploads without page metadata use filename and passage citations. Upload them again for page links.
-- Ask for a quiz, flashcards, or a mixed-format study set. A plain quiz requests 10 four-option multiple-choice questions. For example, try `Create 5 hard identification questions from biology.pdf`. Each item, key, hint, and explanation goes through review. Cerebro shows the number approved if fewer pass.
-- Type `Quiz me` for one question at a time. Reply with an answer, `hint`, `skip`, or `end quiz`. The final score uses first attempts and lists topics and cited sections to revisit. Progress is saved with the conversation. Changing the selected PDFs ends the practice session.
-- Name a selected PDF to limit the current request to that file. With no file named, Cerebro uses the selected PDFs. It refuses requests for unavailable or unselected PDFs.
-- Use the theme button in the header to switch between light and dark mode. Cerebro remembers your choice and starts in dark mode.
+- **Add PDFs** with the paperclip or by dropping them on the workspace. Cerebro keeps headings, paragraphs, lists, tables and page numbers, removes running headers and footers, and reads rotated slide pages. Pages that are scanned images are listed as unreadable; run OCR on those first.
+- **Sources panel**: tick the PDFs an answer may use. Unticked PDFs are never searched. Open *Contents* to see the sections Cerebro found, with page numbers. Pick a section to focus your questions and tools on it; pick its page number to open the PDF there.
+- **Ask in your own words.** Questions are matched by meaning, exact terms, acronyms ("RAM" and "Random Access Memory") and section titles. Follow-ups such as "give me examples", "what are their advantages?" or "make it simpler" stay on the current topic, shown above the question box. A new subject switches the topic; the × clears it.
+- **Reading an answer**: highlighted page tabs mark statements that come from your PDF; tap one to open the page. Text under *Beyond your PDF* is extra explanation or examples from the model's general knowledge, never presented as the PDF's words. *Sources* below an answer shows the supporting sentence for each page.
+- **When your PDF doesn't cover a question**, Cerebro says so and lists what the PDF does cover. If pages were unreadable scans, it tells you the answer may be on those pages. Add "use general knowledge" to a question for a general answer, or choose *PDF only* in Settings to turn off supplementary explanations.
+- **Study tools** under the question box act on the focused topic, or on the selected PDFs when no topic is set:
+  - *Explain* and *Summarize*. Summaries of a whole document cover every section in order; a topic summary reads that whole section.
+  - *Quiz*: a set of questions you answer in place, with the correct answer, an explanation and the supporting quote after each choice.
+  - *Practice*: one question at a time with hints, a retry, and a first-try score that lists what to review.
+  - *Flashcards*: a deck you flip, marking each card as known or to study again.
+  - *Study guide* and *Key terms*.
+  You can also type requests such as `Make 5 hard true or false questions about normalization`.
+- **Limits**: 10 PDFs per conversation, 10 MB each, 1,000,000 extracted characters per conversation.
+- **Settings** (gear at the bottom left, or the model name at the top): theme (black or white), answer mode, chat model, sign out and account deletion.
 
-Cerebro checks exact quotations in extracted text. Reviews assess meaning and relevance and depend on the selected local model. Scanned pages require OCR. Summaries sample passages from across the selected sources.
+## How answers are checked
 
-Evidence selection uses Ollama's [structured output schema](https://docs.ollama.com/capabilities/structured-outputs) at temperature zero, followed by exact-source validation. Use an Ollama version that supports JSON schemas in the chat endpoint. Model capability discovery does not guarantee that every model follows the task equally well.
+1. The question is classified (explain, define, examples, compare, steps, summary, quiz, …) and its topic is resolved against the conversation and the PDFs' section titles.
+2. Passages are ranked by embedding similarity, BM25 keyword scoring, exact phrases, section titles and key-term definitions, only within the selected PDFs. Neighboring passages in the same section are added for context. If the evidence is thin, Cerebro retries with relaxed term matching and section boosts, then asks the model for synonyms and searches again.
+3. The model writes a teaching answer and cites passage numbers. Words from the question that never appear in the passages are pointed out to it, so it can admit gaps.
+4. Every cited sentence is compared with its passage: key terms must overlap, numbers and names must appear in the passage, and negations must agree. Uncertain or re-pointed citations go to one batched yes/no check by the model. Fabricated passage numbers are removed, unsupported citations are stripped, and unsupported numbers or names are dropped. If problems remain after the first draft, the model gets one revision attempt. A note under the answer says how many statements were removed.
+5. Quiz and flashcard items need an exact quote from the passage, an answer the passage supports, four distinct choices with no "all of the above", and no duplicates. The model then answers each multiple-choice question without seeing the key; a different answer or a second defensible choice rejects the question.
 
-The [flashcard template](docs/flashcard-template.md) provides a Markdown reveal-and-recall format. In the chat workspace, use **Show answers** to reveal a study set's answer key.
+These checks reduce unsupported statements; they do not make a small model infallible. Open the page when an answer matters.
 
 ### Optional Python Ollama wrapper
 
@@ -84,34 +106,53 @@ The application itself uses Node.js. [grounded_ollama.py](examples/python/ground
 
 Run `python examples/python/grounded_ollama.py context.json`. The wrapper uses `OLLAMA_BASE_URL` and `OLLAMA_MODEL`, disables LangSmith tracing in its CLI, and validates that each returned quote exactly appears in the selected source. It does not extract PDFs or build a vector index. The model can still select an irrelevant genuine quote, so quotation validation is not a guarantee of relevance or entailment. Check important answers in the PDF. The wrapper sends the provided context to the configured Ollama endpoint; choose a trusted local endpoint.
 
-Account and conversation records live in `users/`; PDF search indexes live in `indexes/`. New original PDFs live in `uploads/originals/` for citation viewing. Removing a PDF, clearing the sources, or deleting its conversation or account removes the associated originals. All three directories are local and ignored by Git. Passwords are stored in plaintext, and the password recovery endpoint can return them. Use a unique password and do not expose Cerebro to the public internet.
+## Data
+
+Account and conversation records live in `users/`; search indexes live in `indexes/`; original PDFs live in `uploads/originals/` for the viewer; sign-ins live in `sessions/sessions.json`. Removing a PDF, clearing sources, or deleting a conversation or account removes the associated originals. Conversations uploaded with older versions are re-read from their stored originals the first time they are opened, so they get the new structure and citations.
+
+**Sign-ins** last until you sign out or stop using Cerebro for 30 days, and they survive server restarts. Only the account name and timestamps are stored in `sessions/`.
+
+**Passwords** are stored as salted scrypt hashes. Accounts created before this change still sign in with their old password, which is then replaced by a hash. *Forgot password?* on the sign-in page sets a new password when you enter your username and the email on the account; the old password is never shown. After eight wrong attempts an account is locked for 10 minutes. Cerebro is still a local app: do not expose it to a network you do not trust.
 
 ## API
-
-Cerebro exposes these local endpoints:
 
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/health` | Check the Cerebro server. |
-| `GET /api/models` | Check the Ollama connection and list pulled chat models. Returns `available`, `models`, `defaultModel`, `embeddingModel`, and `embeddingAvailable`; may include `error`. |
-| `POST /api/upload` | Upload PDFs for a session and conversation. |
-| `POST /api/source` | Open a selected original PDF using the session, conversation, and citation digest. |
-| `POST /api/chat` | Ask a question. Accepts `message`, `sessionId`, `conversationId`, optional `model`, and `stream: true`. |
+| `GET /api/models` | Ollama connection and pulled chat models: `available`, `models`, `defaultModel`, `embeddingModel`, `embeddingAvailable`, optional `error`. |
+| `POST /api/upload` | Upload PDFs to a conversation. Send the sign-in as the `X-Session-Id` header so a signed-out upload is refused before anything is stored. `extractedPages` reports pages, readable pages and `imagePages` per file. |
+| `GET /api/conversations/:sessionId/:conversationId/outline` | Sections, page ranges, key terms and unreadable pages for each PDF in a conversation. |
+| `POST /api/source` | Return a selected original PDF by citation digest. |
+| `POST /api/auth/register`, `/login`, `/logout`, `/reset-password`, `/delete-account` | Local accounts. `reset-password` takes `username`, `email` and the new `password`. |
+| `POST /api/chat` | Ask a question. Accepts `message`, `sessionId`, `conversationId`, optional `model`, `stream: true`, `sourceMode: "pdf-only"` and `topicReset: true`. |
 
-With `stream: true`, `/api/chat` returns newline-delimited JSON. A `delta` event contains the validated response, a `done` event contains the completed `answer` and chat `mode`, and an `error` event reports a failure. PDF responses are buffered until validation completes; model tokens are not streamed directly. Cerebro checks each pulled model with Ollama's `/api/show` and lists only models that advertise the `completion` capability, excluding embedding-only models. Ollama's own API uses [`/api/tags`](https://docs.ollama.com/api/tags) to list models, [`/api/chat`](https://docs.ollama.com/api/chat) for chat, and [`/api/embed`](https://docs.ollama.com/api/embed) for embeddings.
+With `stream: true`, `/api/chat` returns newline-delimited JSON: `status` events (`stage`, `detail`) while it searches, writes and checks; `draft` events with unverified model text (`reset: true` starts a revision); then one `delta` with the verified answer and a `done` event with `answer`, `mode`, the active `topic` and `meta` (intent, answerability class, evidence strength and citation-check counts). An `error` event reports a failure. Clients that only read `delta`, `done` and `error` keep working.
+
+## Testing
+
+```sh
+npm test          # unit and integration tests with a stand-in model; no Ollama needed
+npm run eval      # scenarios A–N on fixture PDFs with the stand-in model
+npm run eval:live # the same scenarios against your Ollama models from .env
+```
+
+Tests run the server against a temporary data folder, never your `users/` or `uploads/`.
+
+`npm run eval` checks the pipeline: retrieval, selected-document isolation, follow-up topics, citation checks, summary coverage and quiz validation. Its stand-in model copies sentences from passages, so it says nothing about answer quality. `npm run eval:live` runs the real models and reports pass/fail per scenario, citation accuracy, removed-claim rate and seconds per turn; add `--verbose` to read every answer.
 
 ## Troubleshooting
 
-General summary requests use sampled passages from across the selected documents. For registration forms with a readable subject/unit/description table and a total-units line, Cerebro instead summarizes the distinct courses and checks parsed unit totals against the reported total. Subject-code listing and counting use the main course rows, not repeated permit or signature tables; evidence shows each code, unit count, and description. Counts describe recognized codes, not a guarantee that every subject was extracted. Unreadable tables receive an extraction-specific message. Re-upload older PDFs to use the updated extraction that separates table columns and rows; this is not OCR and complex layouts may still need a text-based export.
-
 | Symptom | Check |
 | --- | --- |
+| Signed out right after uploading or sending a message | Older versions kept sign-ins in memory, and `nodemon` restarted the server whenever a PDF or index was saved. Update to this version; sign-ins are now saved and `nodemon.json` ignores the data folders. |
 | Ollama unavailable | Start Ollama. Check `http://localhost:11434/api/tags` or the URL in `OLLAMA_BASE_URL`. If `localhost` fails but `127.0.0.1` works, set `OLLAMA_BASE_URL=http://127.0.0.1:11434`. |
-| No chat model in the picker | Run `ollama list`, pull a chat model such as `ollama pull llama3.2`, then refresh the app. |
-| PDF indexing fails | Run `ollama pull nomic-embed-text`, or pull the model named by `OLLAMA_EMBED_MODEL`. Check that Ollama is running. |
-| PDF has no readable text | Use a text-based PDF or run OCR on the scanned PDF first. |
-| The first answer is slow | Ollama may need to load the model into memory. Smaller pulled models can help on lower-memory machines. |
+| No chat model in the picker | Run `ollama list`, pull a chat model such as `ollama pull llama3.2`, then choose *Check again*. |
+| PDF indexing fails | Run `ollama pull nomic-embed-text`, or pull the model named by `OLLAMA_EMBED_MODEL`. |
+| "Pages are scanned images" | Run OCR on the PDF (for example with your scanner software or `ocrmypdf`) and upload it again. |
+| "The model returned only hidden reasoning" | The reasoning model spent its whole budget thinking, even after a retry. Pick a non-reasoning model or a smaller question. |
+| Answers are slow | The first answer loads the model into memory. Large `OLLAMA_NUM_CTX` values and long PDFs make prompts longer; summaries of long documents take one call per part. Lower `CEREBRO_CONTEXT_CHARS` on slow machines. |
+| A quiz has fewer questions than asked | Questions that fail the checks are dropped rather than shown. Name a specific section or use a stronger model. |
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Bundled fonts (Atkinson Hyperlegible Next, Literata) are under the SIL Open Font License; see `public/fonts/OFL.txt`.

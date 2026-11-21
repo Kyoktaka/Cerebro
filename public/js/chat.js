@@ -1,1175 +1,910 @@
 const API_BASE_URL = window.location.origin + '/api';
 const sessionId = localStorage.getItem('cerebro_session');
-const userData = JSON.parse(localStorage.getItem('cerebro_user') || '{}');
+if (!sessionId) window.location.href = 'login.html';
+const user = (() => { try { return JSON.parse(localStorage.getItem('cerebro_user') || '{}'); } catch { return {}; } })();
+const $ = id => document.getElementById(id);
+const { render: renderMarkdown, plain: plainText, escapeHtml } = window.CerebroMarkdown;
 
-let currentConversationId = null;
-let conversations = [];
-let currentMessages = [];
-let isPDFMode = false;
-let currentPDFName = '';
-let currentPDFCount = 0;
-let currentPDFNames = [];
-let activePDFNames = [];
-let isUploading = false;
-let selectedModel = '';
-let embeddingAvailable = false;
-let isSending = false;
-let isLoadingModels = false;
-let conversationRequestVersion = 0;
+const ui = {
+    workspace: $('workspace'), rail: $('rail'), sources: $('sources'), scrim: $('scrim'),
+    history: $('chatHistory'), historyEmpty: $('historyEmpty'), search: $('chatSearch'),
+    title: $('chatTitle'), pill: $('modelPill'), pillText: $('modelPillText'), sourcesCount: $('sourcesCount'),
+    banner: $('statusBanner'), bannerText: $('statusText'), conversation: $('conversation'),
+    contextLine: $('contextLine'), contextDocs: $('contextDocs'), topicChip: $('topicChip'), topicLabel: $('topicLabel'),
+    composer: $('composer'), input: $('composerInput'), send: $('sendBtn'), attach: $('attachBtn'), fileInput: $('fileInput'),
+    tools: $('toolRow'), library: $('library'), clearPdfs: $('clearPdfsBtn'),
+    viewer: $('viewer'), viewerFrame: $('viewerFrame'), viewerTitle: $('viewerTitle'), viewerPage: $('viewerPage'),
+    settings: $('settingsDialog'), modelSelect: $('modelSelect'), modelNote: $('modelNote'),
+    rename: $('renameDialog'), renameInput: $('renameInput'), confirm: $('confirmDialog'), toast: $('toast')
+};
 
+const state = {
+    conversations: [],
+    conversationId: null,
+    messages: [],
+    pdfNames: [],
+    activeNames: [],
+    outline: [],
+    activeTopic: null,
+    pinnedTopic: null,
+    topicReset: false,
+    model: '',
+    embedding: false,
+    sending: false,
+    uploading: false,
+    loadingModels: false,
+    controller: null,
+    version: 0
+};
 
-const sidebar = document.getElementById('chatSidebar');
-const menuToggle = document.getElementById('menuToggle');
-const closeSidebarBtn = document.getElementById('closeSidebarBtn');
-const newChatBtn = document.getElementById('newChatBtn');
-const uploadBtn = document.getElementById('uploadBtn');
-const fileInput = document.getElementById('fileInput');
-const chatInput = document.getElementById('chatInput');
-const sendBtn = document.getElementById('sendBtn');
-const chatMessages = document.getElementById('chatMessages');
-const chatTitle = document.getElementById('chatTitle');
-const pdfModeBadge = document.getElementById('pdfModeBadge');
-const studyModeBar = document.getElementById('studyModeBar');
-const pdfFileNameSpan = document.getElementById('pdfFileName');
-const pdfCounter = document.getElementById('pdfCounter');
-const exitStudyModeBtn = document.getElementById('exitStudyModeBtn');
-const userName = document.getElementById('userName');
-const logoutBtn = document.getElementById('logoutBtn');
-const deleteAccountBtn = document.getElementById('deleteAccountBtn');
-const ollamaModel = document.getElementById('ollamaModel');
-const ollamaStatus = document.getElementById('ollamaStatus');
-const ollamaStatusText = document.getElementById('ollamaStatusText');
-const retryOllamaBtn = document.getElementById('retryOllamaBtn');
+const MAX_PDFS = 10;
+const MAX_BYTES = 10 * 1024 * 1024;
+const overlayWidth = () => window.innerWidth <= 1180;
+const narrow = () => window.innerWidth <= 860;
+const sourceMode = () => localStorage.getItem('cerebro_source_mode') === 'pdf-only' ? 'pdf-only' : 'pdf-first';
 
-if (!sessionId) {
-    window.location.href = 'login.html';
-}
-if (userName) userName.textContent = userData.firstName || userData.lastName;
-
-function setOllamaStatus(message, state) {
-    ollamaStatus.dataset.state = state;
-    ollamaStatusText.textContent = message;
-}
-
-function syncOllamaControls() {
-    sendBtn.disabled = !selectedModel || !chatInput.value.trim() || isSending || isUploading;
-    uploadBtn.disabled = !embeddingAvailable || isUploading || isSending;
-    retryOllamaBtn.disabled = isLoadingModels || isUploading || isSending;
-    uploadBtn.title = embeddingAvailable ? 'Add PDF' : 'PDF study needs a local embedding model.';
-}
-
-function modelIsAvailable(name, models) {
-    return models.find(model => model === name || model === `${name}:latest`);
-}
-
-async function loadOllamaModels() {
-    if (isLoadingModels || isUploading || isSending) return;
-    isLoadingModels = true;
-    setOllamaStatus('Checking local models...', 'loading');
-    selectedModel = '';
-    embeddingAvailable = false;
-    ollamaModel.disabled = true;
-    ollamaModel.replaceChildren(new Option('Checking models...', ''));
-    syncOllamaControls();
-
-    try {
-        const response = await fetch(`${API_BASE_URL}/models`);
-        const data = await response.json();
-        if (!response.ok || !data.available) {
-            throw new Error(data.error || 'Ollama is unavailable. Start it, then refresh models.');
-        }
-
-        const chatModels = (data.models || []).map(model => model.name).filter(Boolean);
-        if (chatModels.length === 0) {
-            throw new Error('No local chat model found. Pull a chat model in Ollama, then refresh.');
-        }
-
-        ollamaModel.replaceChildren(...chatModels.map(name => new Option(name, name)));
-        const savedModel = localStorage.getItem('cerebro_ollama_model');
-        selectedModel = modelIsAvailable(savedModel, chatModels)
-            || modelIsAvailable(data.defaultModel, chatModels)
-            || chatModels[0];
-        ollamaModel.value = selectedModel;
-        ollamaModel.disabled = false;
-        embeddingAvailable = data.embeddingAvailable === true;
-        syncOllamaControls();
-
-        if (embeddingAvailable) {
-            setOllamaStatus('Ollama connected. PDF study is ready.', 'ready');
-        } else {
-            setOllamaStatus(`For PDF study, run ollama pull ${data.embeddingModel}, then refresh.`, 'error');
-        }
-    } catch (error) {
-        ollamaModel.replaceChildren(new Option('No model available', ''));
-        setOllamaStatus(error.message || 'Cannot reach Cerebro. Start the server, then refresh models.', 'error');
-        syncOllamaControls();
-    } finally {
-        isLoadingModels = false;
-        syncOllamaControls();
-    }
-}
-
-ollamaModel.addEventListener('change', () => {
-    selectedModel = ollamaModel.value;
-    localStorage.setItem('cerebro_ollama_model', selectedModel);
-    syncOllamaControls();
-});
-retryOllamaBtn.addEventListener('click', loadOllamaModels);
-loadOllamaModels();
-
-async function refreshSidebarOnly() {
-    try {
-        const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}`);
-        const data = await response.json();
-        conversations = data.conversations || [];
-        renderConversationList();
-        const activeConversation = conversations.find(conversation => conversation.id === currentConversationId);
-        if (activeConversation && chatTitle) chatTitle.textContent = activeConversation.title;
-    } catch (err) {
-        console.error('Error refreshing sidebar:', err);
-    }
-}
-
-function enablePDFMode(pdfName, pdfCount = 1, pdfNames = [], focusedNames = pdfNames) {
-    isPDFMode = true;
-    currentPDFName = pdfName;
-    currentPDFCount = pdfCount;
-    currentPDFNames = pdfNames.length > 0 ? pdfNames : (pdfName ? [pdfName] : []);
-    activePDFNames = [...focusedNames];
-
-    if (pdfModeBadge) pdfModeBadge.style.display = 'flex';
-    if (studyModeBar) studyModeBar.style.display = 'flex';
-
-    renderPDFChips();
-
-    if (pdfCounter) {
-        if (currentPDFNames.length > 1) {
-            pdfCounter.textContent = `${activePDFNames.length}/${currentPDFNames.length} focused`;
-            pdfCounter.style.display = 'inline-block';
-        } else {
-            pdfCounter.style.display = 'none';
-        }
-    }
-}
-
-function disablePDFMode() {
-    isPDFMode = false;
-    currentPDFName = '';
-    currentPDFCount = 0;
-    currentPDFNames = [];
-    activePDFNames = [];
-
-    if (pdfModeBadge) pdfModeBadge.style.display = 'none';
-    if (studyModeBar) studyModeBar.style.display = 'none';
-
-    closePDFManager();
-}
-
-
-function renderPDFChips() {
-    if (!pdfFileNameSpan) return;
-    
-    pdfFileNameSpan.innerHTML = '';
-    
-    if (currentPDFNames.length === 0) {
-        if (currentPDFName) {
-            const chip = document.createElement('button');
-            chip.className = 'pdf-chip';
-            chip.type = 'button';
-            chip.title = currentPDFName;
-            chip.innerHTML = `<i class="fas fa-file-pdf"></i> ${escapeHtml(truncateName(currentPDFName, 25))}`;
-            chip.addEventListener('click', () => openPDFManager());
-            pdfFileNameSpan.appendChild(chip);
-        }
-    } else {
-        const maxVisible = window.innerWidth <= 480 ? 2 : (window.innerWidth <= 760 ? 3 : 5);
-        const visiblePDFs = activePDFNames.slice(0, maxVisible);
-        const remainingActive = activePDFNames.length - visiblePDFs.length;
-        
-        visiblePDFs.forEach((name) => {
-            const chip = document.createElement('button');
-            chip.className = 'pdf-chip';
-            chip.type = 'button';
-            chip.title = name;
-            chip.innerHTML = `<i class="fas fa-file-pdf"></i> ${escapeHtml(truncateName(name, 20))}`;
-            chip.addEventListener('click', () => openPDFManager());
-            pdfFileNameSpan.appendChild(chip);
-        });
-        
-        if (remainingActive > 0) {
-            const moreChip = document.createElement('button');
-            moreChip.className = 'pdf-chip';
-            moreChip.type = 'button';
-            moreChip.innerHTML = `<i class="fas fa-ellipsis-h"></i> +${remainingActive}`;
-            moreChip.addEventListener('click', () => openPDFManager());
-            pdfFileNameSpan.appendChild(moreChip);
-        }
-        
-        const waitingCount = currentPDFNames.length - activePDFNames.length;
-        if (waitingCount > 0) {
-            const waitingChip = document.createElement('button');
-            waitingChip.className = 'pdf-chip';
-            waitingChip.type = 'button';
-            waitingChip.classList.add('pdf-chip-waiting');
-            waitingChip.title = 'PDFs in waiting list (not focused)';
-            waitingChip.innerHTML = `<i class="fas fa-clock"></i> +${waitingCount} waiting`;
-            waitingChip.addEventListener('click', () => openPDFManager());
-            pdfFileNameSpan.appendChild(waitingChip);
-        }
-        
-        if (currentPDFNames.length > 1) {
-            const manageBtn = document.createElement('button');
-            manageBtn.className = 'pdf-manage-btn';
-            manageBtn.type = 'button';
-            manageBtn.innerHTML = `<i class="fas fa-sliders-h"></i> Manage`;
-            manageBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                openPDFManager();
-            });
-            pdfFileNameSpan.appendChild(manageBtn);
-        }
-    }
-    
-    if (pdfCounter) {
-        if (currentPDFNames.length > 1) {
-            pdfCounter.textContent = `${activePDFNames.length}/${currentPDFNames.length} focused`;
-            pdfCounter.style.display = 'inline-block';
-        } else {
-            pdfCounter.style.display = 'none';
-        }
-    }
-}
-
-function truncateName(name, max) {
-    if (name.length <= max) return name;
-    const ext = name.lastIndexOf('.');
-    if (ext !== -1) {
-        const keep = max - 3 - (name.length - ext);
-        return keep > 0 ? name.substring(0, keep) + '...' + name.substring(ext) : '...' + name.substring(ext);
-    }
-    return name.substring(0, max) + '...';
-}
-
-let activePDFManagerPanel = null;
-let pdfManagerTrigger = null;
-
-function openPDFManager() {
-    if (activePDFManagerPanel) {
-        closePDFManager();
-        return;
-    }
-
-    const panel = document.createElement('div');
-    panel.id = 'pdfManagerPanel';
-    panel.className = 'pdf-manager-panel';
-    panel.setAttribute('role', 'region');
-    panel.setAttribute('aria-label', 'PDF source manager');
-    pdfManagerTrigger = document.activeElement;
-
-    const listItems = currentPDFNames.map((name) => {
-        const isActive = activePDFNames.includes(name);
-        return `
-            <label class="pdf-manager-item" title="${escapeHtml(name)}">
-                <input type="checkbox" class="pdf-focus-check" data-name="${escapeHtml(name)}" ${isActive ? 'checked' : ''}>
-                <i class="fas fa-file-pdf"></i>
-                <span class="pdf-item-name">${escapeHtml(truncateName(name, 30))}</span>
-                ${!isActive ? '<span class="pdf-waiting-label">Not focused</span>' : ''}
-            </label>
-        `;
-    }).join('');
-
-    panel.innerHTML = `
-        <div class="pdf-manager-header">
-            <i class="fas fa-layer-group"></i>
-            <span class="pdf-manager-title">Choose sources (${activePDFNames.length} of ${currentPDFNames.length})</span>
-            <button class="pdf-manager-close" id="pdfManagerClose" aria-label="Close PDF manager"><i class="fas fa-times"></i></button>
-        </div>
-        <p class="pdf-manager-hint">Selected PDFs are used for your next question. The others stay here.</p>
-        <div class="pdf-manager-list">
-            ${listItems}
-        </div>
-        <div class="pdf-manager-footer">
-            <button class="pdf-manager-action-btn pdf-select-all-btn" id="pdfSelectAll">
-                <i class="fas fa-check-double"></i> Select all
-            </button>
-            <button class="pdf-manager-action-btn pdf-apply-btn" id="pdfApplyFocus">
-                <i class="fas fa-crosshairs"></i> Use selected
-            </button>
-            <button class="pdf-manager-action-btn pdf-delete-btn" id="pdfDeleteSelected">
-                <i class="fas fa-trash-alt"></i> Delete selected
-            </button>
-        </div>
-    `;
-
-    studyModeBar.parentNode.insertBefore(panel, studyModeBar.nextSibling);
-    activePDFManagerPanel = panel;
-    requestAnimationFrame(() => panel.classList.add('pdf-manager-panel-open'));
-    panel.querySelector('#pdfManagerClose').focus();
-
-    document.getElementById('pdfManagerClose').addEventListener('click', (e) => {
-        e.stopPropagation();
-        closePDFManager();
+async function api(path, options = {}) {
+    const response = await fetch(API_BASE_URL + path, {
+        ...options,
+        headers: options.body instanceof FormData ? { 'X-Session-Id': sessionId } : options.body ? { 'Content-Type': 'application/json' } : undefined,
+        body: options.body && !(options.body instanceof FormData) ? JSON.stringify(options.body) : options.body
     });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw Object.assign(new Error(data.error || `Request failed (${response.status}).`), { status: response.status });
+    return data;
+}
 
-    document.getElementById('pdfSelectAll').addEventListener('click', (e) => {
-    e.stopPropagation();
-    const checks = panel.querySelectorAll('.pdf-focus-check');
-    const allChecked = [...checks].every(c => c.checked);
-    if (allChecked) {
-        checks.forEach(c => c.checked = false);
-        e.currentTarget.innerHTML = '<i class="fas fa-check-double"></i> Select all';
-    } else {
-        checks.forEach(c => c.checked = true);
-        e.currentTarget.innerHTML = '<i class="fas fa-times"></i> Deselect all';
-    }
+let toastTimer;
+function toast(message) {
+    ui.toast.textContent = message;
+    ui.toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { ui.toast.hidden = true; }, 4200);
+}
+
+function confirmAction(title, text, action) {
+    $('confirmTitle').textContent = title;
+    $('confirmText').textContent = text;
+    $('confirmAction').textContent = action;
+    ui.confirm.returnValue = '';
+    ui.confirm.showModal();
+    return new Promise(resolve => ui.confirm.addEventListener('close', () => resolve(ui.confirm.returnValue === 'confirm'), { once: true }));
+}
+
+// ------------------------------------------------------------------ layout
+
+function syncScrim() {
+    const railOpen = narrow() && !ui.workspace.classList.contains('rail-hidden');
+    const sourcesOpen = overlayWidth() && !ui.workspace.classList.contains('sources-hidden');
+    ui.scrim.hidden = !(railOpen || sourcesOpen);
+    $('railToggle').setAttribute('aria-expanded', String(!ui.workspace.classList.contains('rail-hidden')));
+    $('sourcesToggle').setAttribute('aria-expanded', String(!ui.workspace.classList.contains('sources-hidden')));
+    ui.rail.inert = ui.workspace.classList.contains('rail-hidden');
+    ui.sources.inert = ui.workspace.classList.contains('sources-hidden') && !ui.workspace.classList.contains('viewing');
+}
+
+function setRail(open) {
+    ui.workspace.classList.toggle('rail-hidden', !open);
+    if (!narrow()) localStorage.setItem('cerebro_rail', open ? 'open' : 'hidden');
+    syncScrim();
+}
+
+function setSources(open) {
+    ui.workspace.classList.toggle('sources-hidden', !open);
+    if (open && ui.workspace.classList.contains('viewing')) closeViewer();
+    if (!overlayWidth()) localStorage.setItem('cerebro_sources', open ? 'open' : 'hidden');
+    syncScrim();
+}
+
+function initialLayout() {
+    ui.workspace.classList.toggle('rail-hidden', narrow() || localStorage.getItem('cerebro_rail') === 'hidden');
+    ui.workspace.classList.toggle('sources-hidden', overlayWidth() || localStorage.getItem('cerebro_sources') === 'hidden');
+    syncScrim();
+}
+
+$('railToggle').addEventListener('click', () => setRail(ui.workspace.classList.contains('rail-hidden')));
+$('railClose').addEventListener('click', () => setRail(false));
+$('sourcesToggle').addEventListener('click', () => setSources(ui.workspace.classList.contains('sources-hidden')));
+$('sourcesClose').addEventListener('click', () => setSources(false));
+ui.scrim.addEventListener('click', () => {
+    if (narrow()) setRail(false);
+    if (overlayWidth()) setSources(false);
 });
-
-    document.getElementById('pdfApplyFocus').addEventListener('click', async (e) => {
-    e.stopPropagation();
-    const selected = getSelectedNames(panel);
-    if (selected.length === 0) {
-        showPanelError(panel, 'Check at least one PDF to focus on.');
-        return;
-    }
-    await applyFocus(selected);
-});
-
-    document.getElementById('pdfDeleteSelected').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const selected = getSelectedNames(panel);
-        if (selected.length === 0) {
-            showPanelError(panel, 'Check at least one PDF to delete.');
-            return;
-        }
-        await deleteSelectedPDFs(selected);
-    });
-}
-
-function getSelectedNames(panel) {
-    return [...panel.querySelectorAll('.pdf-focus-check:checked')].map(c => c.dataset.name);
-}
-
-function showPanelError(panel, msg) {
-    let err = panel.querySelector('.pdf-panel-error');
-    if (!err) {
-        err = document.createElement('p');
-        err.className = 'pdf-panel-error';
-        panel.querySelector('.pdf-manager-footer').before(err);
-    }
-    err.textContent = msg;
-    setTimeout(() => { if (err.parentNode) err.remove(); }, 2500);
-}
-
-function closePDFManager() {
-    if (activePDFManagerPanel) {
-        const returnFocus = activePDFManagerPanel.contains(document.activeElement);
-        activePDFManagerPanel.remove();
-        activePDFManagerPanel = null;
-        if (returnFocus && pdfManagerTrigger?.isConnected) pdfManagerTrigger.focus();
-        pdfManagerTrigger = null;
-    }
-}
-
-document.addEventListener('click', (e) => {
-    if (activePDFManagerPanel &&
-        !activePDFManagerPanel.contains(e.target) &&
-        !e.target.closest('.pdf-chip') &&
-        !e.target.closest('.pdf-manage-btn')) {
-        closePDFManager();
-    }
-});
-
-document.addEventListener('keydown', (event) => {
-    if (event.key !== 'Escape') return;
-    if (activePDFManagerPanel) closePDFManager();
-    const editModal = document.getElementById('editModal');
-    if (editModal.style.display !== 'none') document.getElementById('cancelEditBtn').click();
-});
-
-async function applyFocus(namesToFocus) {
-    const targetConversationId = currentConversationId;
-    try {
-        const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}/focus-pdf`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                conversationId: targetConversationId,
-                pdfNames: namesToFocus
-            })
-        });
-        const data = await response.json();
-        if (!response.ok || !data.success) throw new Error(data.error || 'Could not update PDF focus.');
-        if (currentConversationId !== targetConversationId) return;
-        activePDFNames = data.activePdfNames;
-        currentPDFNames = data.pdfNames;
-        currentPDFName = activePDFNames[0] || '';
-        currentPDFCount = data.pdfCount;
-        closePDFManager();
-        renderPDFChips();
-    } catch (error) {
-        if (currentConversationId !== targetConversationId) return;
-        if (activePDFManagerPanel) showPanelError(activePDFManagerPanel, error.message);
-        else addMessageToUI(`Could not update PDF focus: ${error.message}`, 'error');
-        return;
-    }
-
-    if (pdfCounter && currentPDFNames.length > 1) {
-        pdfCounter.textContent = `${activePDFNames.length}/${currentPDFNames.length} focused`;
-    }
-    addMessageToUI(`Focused PDFs: ${activePDFNames.join(', ')} (${activePDFNames.length}/${currentPDFNames.length} selected).`, 'notice');
-}
-
-
-async function deleteSelectedPDFs(namesToDelete) {
-    const targetConversationId = currentConversationId;
-    const remaining = currentPDFNames.filter(n => !namesToDelete.includes(n));
-    const label = namesToDelete.length === 1 ? `"${namesToDelete[0]}"` : `${namesToDelete.length} PDFs`;
-    const confirmMsg = remaining.length === 0
-        ? `Delete ${label}? PDF Mode will be disabled.`
-        : `Delete ${label}? ${remaining.length} PDF(s) will remain.`;
-
-    if (!confirm(confirmMsg)) return;
-
-    let result;
-    try {
-        for (const name of namesToDelete) {
-            const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}/delete-pdf`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversationId: targetConversationId, pdfName: name })
-            });
-            result = await response.json();
-            if (!response.ok || !result.success) throw new Error(result.error || `Could not delete ${name}.`);
-        }
-    } catch (error) {
-        if (currentConversationId !== targetConversationId) return;
-        await loadConversation(targetConversationId);
-        if (currentConversationId !== targetConversationId) return;
-        addMessageToUI(`PDF deletion stopped: ${error.message}`, 'error');
-        return;
-    }
-
-    if (currentConversationId !== targetConversationId) return;
-    closePDFManager();
-    currentPDFNames = result.remainingPDFs;
-    activePDFNames = result.activePdfNames;
-    currentPDFCount = result.pdfCount;
-
-    if (currentPDFCount === 0) {
-        disablePDFMode();
-        addMessageToUI(`Removed ${label}. Add a PDF to continue.`, 'notice');
-    } else {
-        currentPDFName = activePDFNames[0] || currentPDFNames[0];
-        enablePDFMode(currentPDFName, currentPDFCount, currentPDFNames, activePDFNames);
-        addMessageToUI(`Removed ${label}. ${currentPDFCount} PDFs remain.`, 'notice');
-    }
-}
-
-if (exitStudyModeBtn) {
-    exitStudyModeBtn.addEventListener('click', async () => {
-        const targetConversationId = currentConversationId;
-        try {
-            const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}/clear-pdfs`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ conversationId: targetConversationId })
-            });
-            const data = await response.json();
-            if (!response.ok || !data.success) throw new Error(data.error || 'Could not clear PDFs.');
-        } catch (error) {
-            if (currentConversationId === targetConversationId) addMessageToUI(`Could not clear PDFs: ${error.message}`, 'error');
-            return;
-        }
-        if (currentConversationId !== targetConversationId) return;
-        disablePDFMode();
-        addMessageToUI('PDFs cleared. Add a PDF to continue.', 'notice');
-    });
-}
-
-
-let isSidebarCollapsed = false;
-
-function syncSidebarAccessibility() {
-    const hidden = window.innerWidth <= 760
-        ? !sidebar.classList.contains('open')
-        : sidebar.classList.contains('collapsed');
-    sidebar.inert = hidden;
-    menuToggle.setAttribute('aria-expanded', String(!hidden));
-}
-
-function loadSidebarState() {
-    const savedState = localStorage.getItem('cerebro_sidebar_collapsed');
-    if (savedState !== null) {
-        isSidebarCollapsed = savedState === 'true';
-        if (isSidebarCollapsed) {
-            sidebar.classList.add('collapsed');
-            document.body.classList.add('sidebar-collapsed');
-        } else {
-            sidebar.classList.remove('collapsed');
-            document.body.classList.remove('sidebar-collapsed');
-        }
-    }
-    syncSidebarAccessibility();
-}
-
-function saveSidebarState() {
-    localStorage.setItem('cerebro_sidebar_collapsed', isSidebarCollapsed);
-}
-
-function toggleSidebar() {
-    if (window.innerWidth <= 760) {
-        sidebar.classList.toggle('open');
-    } else {
-        isSidebarCollapsed = !isSidebarCollapsed;
-        if (isSidebarCollapsed) {
-            sidebar.classList.add('collapsed');
-            document.body.classList.add('sidebar-collapsed');
-        } else {
-            sidebar.classList.remove('collapsed');
-            document.body.classList.remove('sidebar-collapsed');
-        }
-        saveSidebarState();
-    }
-    syncSidebarAccessibility();
-}
-
-function closeSidebar() {
-    if (window.innerWidth <= 760) {
-        sidebar.classList.remove('open');
-    } else {
-        isSidebarCollapsed = true;
-        sidebar.classList.add('collapsed');
-        document.body.classList.add('sidebar-collapsed');
-        saveSidebarState();
-    }
-    syncSidebarAccessibility();
-}
-
-loadSidebarState();
-
-if (menuToggle) menuToggle.addEventListener('click', toggleSidebar);
-if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', closeSidebar);
-
-document.addEventListener('click', (e) => {
-    if (window.innerWidth <= 760) {
-        if (!sidebar.contains(e.target) && !menuToggle.contains(e.target)) {
-            sidebar.classList.remove('open');
-            syncSidebarAccessibility();
-        }
-    }
-});
-
+let resizeTimer;
 window.addEventListener('resize', () => {
-    if (window.innerWidth > 760) {
-        sidebar.classList.remove('open');
-        if (isSidebarCollapsed) {
-            sidebar.classList.add('collapsed');
-            document.body.classList.add('sidebar-collapsed');
-        } else {
-            sidebar.classList.remove('collapsed');
-            document.body.classList.remove('sidebar-collapsed');
-        }
-    } else {
-        sidebar.classList.remove('collapsed');
-        document.body.classList.remove('sidebar-collapsed');
-    }
-    syncSidebarAccessibility();
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(syncScrim, 120);
 });
 
+// ------------------------------------------------------------------ models
 
-function groupConversationsByDate(conversations) {
+function setPill(stateName, text) {
+    ui.pill.dataset.state = stateName;
+    // "hf.co/unsloth/Qwen3-4B-GGUF:Q4_K_M" reads as "Qwen3-4B-GGUF:Q4_K_M"; the tooltip keeps the full name.
+    ui.pillText.textContent = text.split('/').pop();
+    ui.pill.title = text;
+}
+
+function showBanner(message) {
+    ui.bannerText.textContent = message;
+    ui.banner.hidden = !message;
+}
+
+async function loadModels() {
+    if (state.loadingModels) return;
+    state.loadingModels = true;
+    setPill('loading', 'Checking Ollama');
+    showBanner('');
+    try {
+        const data = await api('/models');
+        const names = (data.models || []).map(model => model.name).filter(Boolean);
+        if (!data.available || !names.length) throw new Error(data.error || 'No chat model is installed in Ollama.');
+        const saved = localStorage.getItem('cerebro_ollama_model');
+        const match = name => names.find(item => item === name || item === `${name}:latest`);
+        state.model = match(saved) || match(data.defaultModel) || names[0];
+        state.embedding = data.embeddingAvailable === true;
+        ui.modelSelect.replaceChildren(...names.map(name => new Option(name, name)));
+        ui.modelSelect.value = state.model;
+        ui.modelSelect.disabled = false;
+        if (state.embedding) {
+            setPill('ready', state.model);
+            ui.modelNote.textContent = `Ollama is running. PDFs are indexed with ${data.embeddingModel}.`;
+        } else {
+            setPill('limited', state.model);
+            ui.modelNote.textContent = `To read PDFs, run: ollama pull ${data.embeddingModel}`;
+            showBanner(`PDF reading needs the embedding model. Run "ollama pull ${data.embeddingModel}", then check again.`);
+        }
+    } catch (error) {
+        state.model = '';
+        state.embedding = false;
+        ui.modelSelect.replaceChildren(new Option('No model available', ''));
+        ui.modelSelect.disabled = true;
+        setPill('error', 'Ollama offline');
+        ui.modelNote.textContent = error.message;
+        showBanner(error.status ? error.message : `${error.message} Start Ollama, then check again.`.replace('Failed to fetch.', 'Cerebro\'s server is not reachable.'));
+    } finally {
+        state.loadingModels = false;
+        syncControls();
+    }
+}
+
+ui.modelSelect.addEventListener('change', () => {
+    state.model = ui.modelSelect.value;
+    localStorage.setItem('cerebro_ollama_model', state.model);
+    setPill(state.embedding ? 'ready' : 'limited', state.model);
+});
+$('retryModelsBtn').addEventListener('click', loadModels);
+ui.pill.addEventListener('click', () => openSettings());
+
+function syncControls() {
+    const busy = state.sending || state.uploading;
+    ui.send.disabled = state.sending ? false : (!state.model || !ui.input.value.trim() || busy);
+    ui.send.classList.toggle('is-stop', state.sending);
+    ui.send.setAttribute('aria-label', state.sending ? 'Stop' : 'Send');
+    ui.send.innerHTML = state.sending ? '<i class="fas fa-stop" aria-hidden="true"></i>' : '<i class="fas fa-arrow-up" aria-hidden="true"></i>';
+    ui.attach.disabled = !state.embedding || busy || !state.conversationId;
+    $('addPdfBtn').disabled = ui.attach.disabled;
+    ui.attach.title = state.embedding ? 'Add PDF' : 'PDF reading needs the Ollama embedding model';
+    ui.tools.querySelectorAll('button').forEach(button => { button.disabled = busy || !state.model || !state.pdfNames.length; });
+}
+
+// ------------------------------------------------------------------ chats
+
+const chatName = title => !title || title === 'New Conversation' ? 'New chat' : title;
+
+function groupByDate(list) {
+    const day = 86400000;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const weekAgo = new Date(today);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const monthAgo = new Date(today);
-    monthAgo.setDate(monthAgo.getDate() - 30);
-
-    const groups = { today: [], yesterday: [], week: [], month: [], older: [] };
-
-    conversations.forEach(conv => {
-        const convDate = new Date(conv.updatedAt);
-        convDate.setHours(0, 0, 0, 0);
-        if (convDate.getTime() === today.getTime()) groups.today.push(conv);
-        else if (convDate.getTime() === yesterday.getTime()) groups.yesterday.push(conv);
-        else if (convDate >= weekAgo) groups.week.push(conv);
-        else if (convDate >= monthAgo) groups.month.push(conv);
-        else groups.older.push(conv);
-    });
-    return groups;
-}
-
-function renderConversationList() {
-    const groups = groupConversationsByDate(conversations);
-    const todayList = document.getElementById('todayList');
-    const yesterdayList = document.getElementById('yesterdayList');
-    const weekList = document.getElementById('weekList');
-    const monthList = document.getElementById('monthList');
-    const olderList = document.getElementById('olderList');
-
-    for (const [key, list] of Object.entries({ today: todayList, yesterday: yesterdayList, week: weekList, month: monthList, older: olderList })) {
-        if (!list) continue;
-        list.innerHTML = groups[key].map(conv => createConversationItem(conv)).join('');
-        list.previousElementSibling.hidden = groups[key].length === 0;
+    const groups = [['Today', []], ['Yesterday', []], ['Previous 7 days', []], ['Previous 30 days', []], ['Older', []]];
+    for (const item of list) {
+        const age = today - new Date(item.updatedAt).setHours(0, 0, 0, 0);
+        const index = age <= 0 ? 0 : age <= day ? 1 : age <= 7 * day ? 2 : age <= 30 * day ? 3 : 4;
+        groups[index][1].push(item);
     }
+    return groups.filter(([, items]) => items.length);
 }
 
-function createConversationItem(conv) {
-    const isActive = currentConversationId === conv.id;
-    const title = conv.title || 'New Conversation';
-    const date = new Date(conv.updatedAt).toLocaleDateString();
-    return `
-        <div class="conversation-item ${isActive ? 'active' : ''}" data-id="${escapeHtml(conv.id)}">
-            <button type="button" class="conversation-info" data-action="load" data-id="${escapeHtml(conv.id)}">
-                <span class="conversation-title">${escapeHtml(title)}</span>
-                <span class="conversation-date">${date}</span>
-            </button>
-            <div class="conversation-actions">
-                <button type="button" class="conv-edit" data-action="edit" data-id="${escapeHtml(conv.id)}" aria-label="Edit ${escapeHtml(title)}">
-                    <i class="fas fa-pen"></i>
-                </button>
-                <button type="button" class="conv-delete" data-action="delete" data-id="${escapeHtml(conv.id)}" aria-label="Delete ${escapeHtml(title)}">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </div>
-        </div>
-    `;
+function renderHistory() {
+    const query = ui.search.value.trim().toLowerCase();
+    const list = state.conversations.filter(item => !query || (item.title || '').toLowerCase().includes(query));
+    ui.history.innerHTML = groupByDate(list).map(([label, items]) => `
+        <div class="history-group"><p class="history-label">${label}</p>${items.map(item => `
+            <div class="history-item${item.id === state.conversationId ? ' is-active' : ''}">
+                <button type="button" class="history-open" data-open="${escapeHtml(item.id)}"${item.id === state.conversationId ? ' aria-current="true"' : ''}>${escapeHtml(chatName(item.title))}</button>
+                <span class="history-tools">
+                    <button type="button" data-rename="${escapeHtml(item.id)}" aria-label="Rename ${escapeHtml(item.title || 'chat')}" title="Rename"><i class="fas fa-pen" aria-hidden="true"></i></button>
+                    <button type="button" data-delete="${escapeHtml(item.id)}" aria-label="Delete ${escapeHtml(item.title || 'chat')}" title="Delete"><i class="fas fa-trash" aria-hidden="true"></i></button>
+                </span>
+            </div>`).join('')}</div>`).join('');
+    ui.historyEmpty.hidden = !query || list.length > 0;
 }
 
-document.querySelector('.conversations-section').addEventListener('click', (event) => {
-    const control = event.target.closest('button[data-action]');
-    if (!control) return;
-    const conversation = conversations.find(item => item.id === control.dataset.id);
-    if (!conversation) return;
-    if (control.dataset.action === 'load') loadConversation(conversation.id);
-    if (control.dataset.action === 'edit') editConversation(conversation.id, conversation.title || 'New Conversation');
-    if (control.dataset.action === 'delete') deleteConversation(conversation.id);
+ui.search.addEventListener('input', renderHistory);
+ui.history.addEventListener('click', event => {
+    const open = event.target.closest('[data-open]');
+    const rename = event.target.closest('[data-rename]');
+    const remove = event.target.closest('[data-delete]');
+    if (open) openConversation(open.dataset.open);
+    if (rename) renameConversation(rename.dataset.rename);
+    if (remove) deleteConversation(remove.dataset.delete);
 });
 
-async function loadConversations() {
+async function refreshHistory() {
     try {
-        const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}`);
-        const data = await response.json();
-        conversations = data.conversations || [];
-        renderConversationList();
-        if (conversations.length > 0 && !currentConversationId) {
-            loadConversation(conversations[0].id);
-        } else if (conversations.length === 0) {
-            createNewConversation();
-        }
+        state.conversations = (await api(`/conversations/${sessionId}`)).conversations || [];
+    } catch {
+        state.conversations = [];
+    }
+    renderHistory();
+    const current = state.conversations.find(item => item.id === state.conversationId);
+    if (current) ui.title.textContent = chatName(current.title);
+}
+
+async function createConversation() {
+    if (state.sending || state.uploading) return;
+    const version = ++state.version;
+    try {
+        const data = await api('/conversations/create', { method: 'POST', body: { sessionId } });
+        if (version !== state.version) return;
+        await refreshHistory();
+        await openConversation(data.conversationId);
+        ui.input.focus();
     } catch (error) {
-        console.error('Error loading conversations:', error);
-        createNewConversation();
+        if (error.status === 401) return signOutLocally(true);
+        toast(error.message);
     }
 }
 
-async function createNewConversation() {
-    const requestVersion = ++conversationRequestVersion;
+async function openConversation(id) {
+    if (state.sending) return;
+    const version = ++state.version;
+    state.conversationId = id;
+    closeViewer();
     try {
-        const response = await fetch(`${API_BASE_URL}/conversations/create`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId })
-        });
-        const data = await response.json();
-        if (requestVersion !== conversationRequestVersion) return;
-        currentConversationId = data.conversationId;
-        currentMessages = [];
-        await loadConversations();
-        if (requestVersion !== conversationRequestVersion || currentConversationId !== data.conversationId) return;
-        renderCurrentConversation();
-        if (chatTitle) chatTitle.textContent = 'New Conversation';
-        disablePDFMode();
-        if (window.innerWidth <= 760) closeSidebar();
+        const data = await api(`/conversations/${sessionId}/${id}`);
+        if (version !== state.version) return;
+        state.messages = data.messages || [];
+        state.pdfNames = data.pdfNames || [];
+        state.activeNames = data.activePdfNames || state.pdfNames;
+        state.activeTopic = data.context?.activeTopic || null;
+        state.pinnedTopic = null;
+        state.topicReset = false;
+        state.outline = [];
+        ui.title.textContent = chatName(state.conversations.find(item => item.id === id)?.title);
+        renderHistory();
+        renderLibrary();
+        renderThread();
+        renderContext();
+        syncControls();
+        if (narrow()) setRail(false);
+        if (state.pdfNames.length) loadOutline(version);
     } catch (error) {
-        if (requestVersion !== conversationRequestVersion) return;
-        console.error('Error creating conversation:', error);
-        renderCurrentConversation();
+        if (error.status === 401) return signOutLocally(true);
+        toast('That chat could not be opened.');
     }
 }
 
-async function loadConversation(conversationId) {
-    const requestVersion = ++conversationRequestVersion;
-    currentConversationId = conversationId;
-    closePDFManager();
-    try {
-        const response = await fetch(`${API_BASE_URL}/conversations/${sessionId}/${conversationId}`);
-        const data = await response.json();
-        if (requestVersion !== conversationRequestVersion || currentConversationId !== conversationId) return;
-        currentMessages = data.messages || [];
-        renderCurrentConversation();
-        const conv = conversations.find(c => c.id === conversationId);
-        if (chatTitle) chatTitle.textContent = conv?.title || 'Conversation';
-
-        if (data.pdfNames && data.pdfNames.length > 0) {
-            enablePDFMode(data.activePdfNames?.[0] || data.pdfNames[0], data.pdfCount || data.pdfNames.length, data.pdfNames, data.activePdfNames || data.pdfNames);
-        } else {
-            disablePDFMode();
-        }
-
-        renderConversationList();
-        if (window.innerWidth <= 760) closeSidebar();
-    } catch (error) {
-        if (requestVersion !== conversationRequestVersion || currentConversationId !== conversationId) return;
-        console.error('Error loading conversation:', error);
-        disablePDFMode();
-    }
-}
-
-async function editConversation(conversationId, currentTitle) {
-    const modal = document.getElementById('editModal');
-    const input = document.getElementById('editTitleInput');
-    if (!modal || !input) return;
-    const layout = document.querySelector('.chat-layout');
-    const previousFocus = document.activeElement;
-    input.value = currentTitle;
-    modal.style.display = 'flex';
-    layout.inert = true;
-    input.focus();
-
-    const saveBtn = document.getElementById('saveEditBtn');
-    const cancelBtn = document.getElementById('cancelEditBtn');
-
-    const closeModal = () => {
-        modal.style.display = 'none';
-        layout.inert = false;
-        saveBtn.removeEventListener('click', saveHandler);
-        cancelBtn.removeEventListener('click', cancelHandler);
-        modal.removeEventListener('keydown', keepFocusInside);
-        const editButton = [...document.querySelectorAll('.conv-edit')].find(button => button.dataset.id === conversationId);
-        (editButton || (previousFocus.isConnected ? previousFocus : newChatBtn)).focus();
-    };
-
-    const keepFocusInside = event => {
-        if (event.key !== 'Tab') return;
-        const focusable = [input, cancelBtn, saveBtn];
-        const first = focusable[0];
-        const last = focusable.at(-1);
-        if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault();
-            last.focus();
-        } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault();
-            first.focus();
-        }
-    };
-
-    const saveHandler = async () => {
-        const newTitle = input.value.trim();
-        if (newTitle) {
-            try {
-                await fetch(`${API_BASE_URL}/conversations/${sessionId}/${conversationId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ title: newTitle })
-                });
-                await refreshSidebarOnly();
-                if (currentConversationId === conversationId && chatTitle) {
-                    chatTitle.textContent = newTitle;
-                }
-            } catch (error) {
-                console.error('Error editing conversation:', error);
-            }
-        }
-        closeModal();
-    };
-
-    const cancelHandler = () => {
-        closeModal();
-    };
-
-    modal.addEventListener('keydown', keepFocusInside);
-    saveBtn.addEventListener('click', saveHandler);
-    cancelBtn.addEventListener('click', cancelHandler);
-}
-
-async function deleteConversation(conversationId) {
-    if (confirm('Delete this conversation? This action cannot be undone.')) {
+function renameConversation(id) {
+    const current = state.conversations.find(item => item.id === id);
+    ui.renameInput.value = current?.title || '';
+    ui.rename.returnValue = '';
+    ui.rename.showModal();
+    ui.renameInput.select();
+    ui.rename.addEventListener('close', async () => {
+        const title = ui.renameInput.value.trim();
+        if (ui.rename.returnValue !== 'save' || !title) return;
         try {
-            await fetch(`${API_BASE_URL}/conversations/${sessionId}/${conversationId}`, {
-                method: 'DELETE'
-            });
-            if (currentConversationId === conversationId) {
-                currentConversationId = null;
-                currentMessages = [];
-                renderCurrentConversation();
-                disablePDFMode();
-            }
-            await loadConversations();
+            await api(`/conversations/${sessionId}/${id}`, { method: 'PUT', body: { title } });
+            await refreshHistory();
         } catch (error) {
-            console.error('Error deleting conversation:', error);
+            toast(error.message);
         }
+    }, { once: true });
+}
+
+async function deleteConversation(id) {
+    const current = state.conversations.find(item => item.id === id);
+    if (!await confirmAction('Delete this chat?', `"${current?.title || 'New chat'}" and its PDFs will be removed from this computer.`, 'Delete chat')) return;
+    try {
+        await api(`/conversations/${sessionId}/${id}`, { method: 'DELETE' });
+        await refreshHistory();
+        if (id === state.conversationId) {
+            if (state.conversations.length) await openConversation(state.conversations[0].id);
+            else await createConversation();
+        }
+        toast('Chat deleted.');
+    } catch (error) {
+        toast(error.message);
     }
 }
 
-function renderCurrentConversation() {
-    if (!chatMessages) return;
+$('newChatBtn').addEventListener('click', createConversation);
 
-    if (currentMessages.length === 0) {
-        chatMessages.innerHTML = `
-            <div class="welcome-message">
-                <h2>What would you like to study?</h2>
-                <p>Ask a question, or add a PDF to study from your sources.</p>
-                <div class="welcome-actions">
-                    <button type="button" data-welcome-upload><i class="fas fa-paperclip" aria-hidden="true"></i> Upload PDF</button>
-                    <button type="button" data-study-prompt="Quiz me interactively on the focused PDFs, one multiple-choice question at a time, with four options.">Create quiz</button>
-                    <button type="button" data-study-prompt="Generate flashcards with clear front and back sides.">Flashcards</button>
-                    <button type="button" data-study-prompt="Summarize the focused PDF documents.">Summarize</button>
-                </div>
-            </div>
-        `;
+// ------------------------------------------------------------------ sources
+
+async function loadOutline(version = state.version) {
+    try {
+        const data = await api(`/conversations/${sessionId}/${state.conversationId}/outline`);
+        if (version !== state.version) return;
+        state.outline = data.documents || [];
+        renderLibrary();
+        if (!state.messages.length) renderThread();
+    } catch {
+        state.outline = [];
+    }
+}
+
+function docInfo(name) {
+    return state.outline.find(doc => doc.name === name);
+}
+
+function renderLibrary() {
+    ui.sourcesCount.textContent = state.pdfNames.length ? `${state.activeNames.length} of ${state.pdfNames.length} PDFs` : 'Sources';
+    ui.clearPdfs.hidden = !state.pdfNames.length;
+    if (!state.pdfNames.length) {
+        ui.library.innerHTML = '<li class="library-empty">No PDFs in this chat yet.</li>';
         return;
     }
-
-    chatMessages.innerHTML = '';
-    for (const msg of currentMessages) {
-        addMessageToUI(msg.content, msg.role, msg.attachments, msg._isProcessing || false);
-    }
-    scrollToBottom();
+    ui.library.innerHTML = state.pdfNames.map((name, i) => {
+        const info = docInfo(name);
+        const on = state.activeNames.includes(name);
+        const meta = info ? [
+            info.pageCount ? `${info.pageCount} page${info.pageCount === 1 ? '' : 's'}` : '',
+            info.imagePages?.length ? `<span class="warn">${info.imagePages.length} scanned, not readable</span>` : '',
+            info.truncated ? '<span class="warn">trimmed to fit</span>' : ''
+        ].filter(Boolean).join(' · ') : 'Reading…';
+        const sections = info?.sections || [];
+        const pinned = state.pinnedTopic;
+        const toc = info ? (sections.length ? `<details class="toc"${on && i === 0 ? ' open' : ''}><summary>Contents</summary><ol>${sections.map(section => `
+            <li data-level="${section.level}">
+                <button type="button" class="toc-topic" data-topic="${escapeHtml(section.title)}" data-doc="${escapeHtml(name)}" aria-pressed="${pinned?.label === section.title && pinned?.doc === name}"${on ? '' : ' disabled'}>
+                    <span class="toc-title">${escapeHtml(section.title)}</span><span class="toc-leader" aria-hidden="true"></span>
+                </button>
+                ${section.page ? `<button type="button" class="toc-page" data-view-doc="${escapeHtml(name)}" data-view-page="${section.page}" aria-label="Open ${escapeHtml(name)} at page ${section.page}">${section.page}</button>` : ''}
+            </li>`).join('')}</ol></details>` : '<p class="toc-empty">No headings found. Ask for a summary to see what it covers.</p>') : '';
+        return `<li class="doc${on ? '' : ' is-off'}">
+            <div class="doc-row">
+                <input type="checkbox" id="doc-${i}" data-focus="${escapeHtml(name)}"${on ? ' checked' : ''}>
+                <label for="doc-${i}"><span class="doc-name">${escapeHtml(name)}</span><span class="doc-meta">${meta}</span></label>
+                <button type="button" class="icon-button" data-remove="${escapeHtml(name)}" aria-label="Remove ${escapeHtml(name)}" title="Remove"><i class="fas fa-trash" aria-hidden="true"></i></button>
+            </div>${toc}</li>`;
+    }).join('');
 }
 
-function addMessageToUI(text, role, attachments = null, isProcessing = false) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${role === 'user' ? 'user' : role === 'notice' || role === 'error' ? `notice${role === 'error' ? ' error' : ''}` : 'bot'}`;
-    if (role === 'notice') messageDiv.setAttribute('role', 'status');
-    if (role === 'error') messageDiv.setAttribute('role', 'alert');
-    let content;
-    if (isProcessing) {
-        content = `<div class="message-content status-content">${formatMessage(text)}</div>`;
-    } else {
-        content = `<div class="message-content">${formatMessage(text, role === 'assistant' || role === 'bot')}`;
-        if (attachments && attachments.length > 0) {
-            for (const file of attachments) {
-                content += `<div class="message-attachment"><i class="fas fa-file-pdf"></i> ${escapeHtml(file.name)}</div>`;
-            }
+ui.library.addEventListener('change', async event => {
+    const box = event.target.closest('[data-focus]');
+    if (!box) return;
+    const next = box.checked ? [...new Set([...state.activeNames, box.dataset.focus])] : state.activeNames.filter(name => name !== box.dataset.focus);
+    if (!next.length) {
+        box.checked = true;
+        return toast('Keep at least one PDF ticked.');
+    }
+    try {
+        const data = await api(`/conversations/${sessionId}/focus-pdf`, { method: 'POST', body: { conversationId: state.conversationId, pdfNames: state.pdfNames.filter(name => next.includes(name)) } });
+        state.activeNames = data.activePdfNames;
+        if (state.pinnedTopic && !state.activeNames.includes(state.pinnedTopic.doc)) state.pinnedTopic = null;
+        state.activeTopic = null;
+        renderLibrary();
+        renderContext();
+    } catch (error) {
+        box.checked = !box.checked;
+        toast(error.message);
+    }
+});
+
+ui.library.addEventListener('click', async event => {
+    const topic = event.target.closest('[data-topic]');
+    const view = event.target.closest('[data-view-doc]');
+    const remove = event.target.closest('[data-remove]');
+    if (topic) {
+        const same = state.pinnedTopic?.label === topic.dataset.topic && state.pinnedTopic?.doc === topic.dataset.doc;
+        state.pinnedTopic = same ? null : { label: topic.dataset.topic, doc: topic.dataset.doc };
+        renderLibrary();
+        renderContext();
+        if (!same) {
+            if (overlayWidth()) setSources(false);
+            ui.input.focus();
         }
-        content += `</div>`;
     }
-    messageDiv.innerHTML = content;
-    chatMessages.appendChild(messageDiv);
-    scrollToBottom();
-    return messageDiv;
+    if (view) openViewer({ doc: view.dataset.viewDoc, page: Number(view.dataset.viewPage) });
+    if (remove) removePdf(remove.dataset.remove);
+});
+
+async function removePdf(name) {
+    if (!await confirmAction(`Remove ${name}?`, 'Answers in this chat will no longer use it. Earlier answers stay in the chat.', 'Remove PDF')) return;
+    try {
+        const data = await api(`/conversations/${sessionId}/delete-pdf`, { method: 'POST', body: { conversationId: state.conversationId, pdfName: name } });
+        state.pdfNames = data.remainingPDFs;
+        state.activeNames = data.activePdfNames;
+        state.outline = state.outline.filter(doc => doc.name !== name);
+        if (state.pinnedTopic?.doc === name) state.pinnedTopic = null;
+        state.activeTopic = null;
+        renderLibrary();
+        renderContext();
+        if (!state.messages.length) renderThread();
+        syncControls();
+    } catch (error) {
+        toast(error.message);
+    }
 }
 
+ui.clearPdfs.addEventListener('click', async () => {
+    if (!await confirmAction('Remove all PDFs from this chat?', 'The conversation stays. You can add PDFs again any time.', 'Remove all')) return;
+    try {
+        await api(`/conversations/${sessionId}/clear-pdfs`, { method: 'POST', body: { conversationId: state.conversationId } });
+        Object.assign(state, { pdfNames: [], activeNames: [], outline: [], pinnedTopic: null, activeTopic: null });
+        renderLibrary();
+        renderContext();
+        renderThread();
+        syncControls();
+    } catch (error) {
+        toast(error.message);
+    }
+});
 
-async function sendMessage() {
-    const message = chatInput.value.trim();
-    if (!message || !selectedModel || isSending || isUploading) return;
+function pickFiles() {
+    if (!ui.attach.disabled) ui.fileInput.click();
+    else if (!state.embedding) toast('PDF reading needs the Ollama embedding model. Open Settings for details.');
+}
+ui.attach.addEventListener('click', pickFiles);
+$('addPdfBtn').addEventListener('click', pickFiles);
+ui.fileInput.addEventListener('change', () => {
+    uploadFiles([...ui.fileInput.files]);
+    ui.fileInput.value = '';
+});
 
-    isSending = true;
-    syncOllamaControls();
-    const targetConversationId = currentConversationId;
+async function uploadFiles(files) {
+    if (!files.length || state.uploading || state.sending) return;
+    const pdfs = files.filter(file => /\.pdf$/i.test(file.name));
+    if (pdfs.length !== files.length) return toast('Only PDF files can be added.');
+    const large = pdfs.find(file => file.size > MAX_BYTES);
+    if (large) return toast(`${large.name} is larger than 10 MB.`);
+    if (state.pdfNames.length + pdfs.length > MAX_PDFS) return toast(`A chat can hold ${MAX_PDFS} PDFs. Remove one first.`);
+    const target = state.conversationId;
+    state.uploading = true;
+    syncControls();
+    const notice = appendMessage({ role: 'notice', content: `Reading ${pdfs.length === 1 ? pdfs[0].name : pdfs.length + ' PDFs'}: extracting pages, finding sections, and indexing for search…` });
+    const form = new FormData();
+    pdfs.forEach(file => form.append('files', file));
+    form.append('sessionId', sessionId);
+    form.append('conversationId', target);
+    try {
+        const result = await api('/upload', { method: 'POST', body: form });
+        if (state.conversationId !== target) return;
+        state.pdfNames = result.pdfNames;
+        state.activeNames = result.activePdfNames;
+        const details = (result.extractedPages || []).map(file => {
+            const scanned = file.imagePages?.length ? ` ${file.imagePages.length} page${file.imagePages.length > 1 ? 's are' : ' is a'} scanned image${file.imagePages.length > 1 ? 's' : ''} without text and can't be read.` : '';
+            return `**${file.name}**: ${file.readablePages} of ${file.pages} pages have text.${scanned}`;
+        }).join('\n');
+        notice.querySelector('.message-body').innerHTML = renderMarkdown(`Added ${pdfs.length === 1 ? 'your PDF' : pdfs.length + ' PDFs'}.\n${details}${result.truncated ? '\nSome text was trimmed to stay under the size limit.' : ''}`);
+        renderLibrary();
+        renderContext();
+        await loadOutline();
+        if (!state.messages.length) renderThread();
+        if (!overlayWidth()) setSources(true);
+    } catch (error) {
+        if (error.status === 401) return signOutLocally(true);
+        notice.classList.replace('notice', 'error');
+        notice.querySelector('.message-body').textContent = `Couldn't add the PDF. ${error.message}`;
+    } finally {
+        state.uploading = false;
+        syncControls();
+        refreshHistory();
+    }
+}
 
-    if (currentMessages.length === 0) chatMessages.replaceChildren();
-    addMessageToUI(message, 'user');
-    currentMessages.push({ role: 'user', content: message, timestamp: new Date().toISOString() });
-    chatInput.value = '';
-    chatInput.style.height = '';
+['dragenter', 'dragover'].forEach(type => ui.workspace.addEventListener(type, event => {
+    if (![...(event.dataTransfer?.types || [])].includes('Files')) return;
+    event.preventDefault();
+    ui.workspace.classList.add('dragging');
+}));
+['dragleave', 'drop'].forEach(type => ui.workspace.addEventListener(type, event => {
+    if (type === 'dragleave' && event.relatedTarget && ui.workspace.contains(event.relatedTarget)) return;
+    ui.workspace.classList.remove('dragging');
+}));
+ui.workspace.addEventListener('drop', event => {
+    if (!event.dataTransfer?.files?.length) return;
+    event.preventDefault();
+    uploadFiles([...event.dataTransfer.files]);
+});
 
-    showTypingIndicator();
+// ------------------------------------------------------------------ context line
+
+function currentTopic() {
+    return state.pinnedTopic || (state.topicReset ? null : state.activeTopic);
+}
+
+function renderContext() {
+    const show = state.pdfNames.length > 0;
+    ui.contextLine.hidden = !show;
+    if (!show) return;
+    const names = state.activeNames;
+    ui.contextDocs.innerHTML = names.length <= 2
+        ? names.map(name => `<strong>${escapeHtml(name)}</strong>`).join(' and ')
+        : `<strong>${names.length} PDFs</strong>`;
+    const topic = currentTopic();
+    ui.topicChip.hidden = !topic;
+    ui.topicLabel.textContent = topic?.label || '';
+    ui.input.placeholder = topic ? `Ask about ${topic.label}` : 'Ask about your PDF';
+}
+
+$('topicClear').addEventListener('click', () => {
+    if (state.pinnedTopic) state.pinnedTopic = null;
+    else state.topicReset = true;
+    renderLibrary();
+    renderContext();
+    ui.input.focus();
+});
+
+// ------------------------------------------------------------------ thread
+
+function suggestionsFor() {
+    const sections = state.outline.filter(doc => state.activeNames.includes(doc.name)).flatMap(doc => doc.sections.filter(section => section.level <= 2));
+    const picks = [];
+    if (sections[0]) picks.push(['Explain', `Explain "${sections[0].title}"`]);
+    if (sections[1]) picks.push(['Quiz', `Make a 5 question quiz on "${sections[1].title}"`]);
+    if (sections[2]) picks.push(['Flashcards', `Make flashcards on "${sections[2].title}"`]);
+    picks.push(['Summarize', state.activeNames.length > 1 ? 'Summarize the selected PDFs' : `Summarize ${state.activeNames[0]}`]);
+    picks.push(['Outline', 'List the topics covered']);
+    return picks;
+}
+
+function renderThread() {
+    ui.conversation.replaceChildren();
+    if (!state.messages.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        if (!state.pdfNames.length) {
+            empty.innerHTML = `<h2>Add the PDF you're studying</h2>
+                <p>Lecture notes, handouts, slides exported as PDF. Cerebro reads the text, finds the sections, and answers from it with page references.</p>
+                <div class="dropzone"><button type="button" class="solid-button" data-empty-upload><i class="fas fa-paperclip" aria-hidden="true"></i> Choose PDF</button>
+                <p>Or drop files here. Up to 10 PDFs, 10 MB each. Scanned pages need OCR first.</p></div>`;
+        } else {
+            empty.innerHTML = `<h2>What do you want to understand?</h2>
+                <p>Ask in your own words. Follow-ups like "give me an example" or "make it simpler" stay on the same topic.</p>
+                <div class="suggestions">${suggestionsFor().map(([tool, prompt]) =>
+                    `<button type="button" class="suggestion" data-prompt="${escapeHtml(prompt)}"><span class="suggestion-tool">${tool}</span><span>${escapeHtml(prompt.replace(/^(?:Explain|Make a 5 question quiz on|Make flashcards on|Summarize) /, '').replace(/"/g, ''))}</span></button>`).join('')}</div>`;
+        }
+        ui.conversation.append(empty);
+        return;
+    }
+    const thread = document.createElement('div');
+    thread.className = 'thread';
+    ui.conversation.append(thread);
+    for (const message of state.messages) appendMessage(message, false);
+    markStalePractice();
+    scrollToEnd();
+}
+
+function threadNode() {
+    let thread = ui.conversation.querySelector('.thread');
+    if (!thread) {
+        ui.conversation.replaceChildren();
+        thread = document.createElement('div');
+        thread.className = 'thread';
+        ui.conversation.append(thread);
+    }
+    return thread;
+}
+
+function fillAnswer(body, text) {
+    body.innerHTML = renderMarkdown(text);
+    window.CerebroBlocks.hydrate(body);
+    const docs = new Set([...body.querySelectorAll('.page-tab[data-doc]')].map(tab => tab.dataset.doc));
+    body.closest('.message')?.classList.toggle('multi-doc', docs.size > 1);
+}
+
+function appendMessage(message, scroll = true) {
+    const node = document.createElement('article');
+    const role = message.role === 'assistant' ? 'assistant' : message.role;
+    node.className = 'message ' + role;
+    const body = document.createElement('div');
+    body.className = 'message-body' + (role === 'assistant' ? ' answer' : '');
+    node.append(body);
+    if (role === 'assistant') {
+        fillAnswer(body, message.content);
+        node.insertAdjacentHTML('beforeend', '<div class="message-actions"><button type="button" class="text-button" data-copy>Copy</button><button type="button" class="text-button" data-retry>Ask again</button></div>');
+    } else {
+        body.textContent = message.content;
+    }
+    threadNode().append(node);
+    if (scroll) scrollToEnd();
+    return node;
+}
+
+function markStalePractice() {
+    const blocks = [...ui.conversation.querySelectorAll('.practice')];
+    blocks.forEach((block, i) => block.classList.toggle('is-stale', i !== blocks.length - 1 || block.closest('.message') !== ui.conversation.querySelector('.message.assistant:last-of-type')));
+}
+
+function scrollToEnd() {
+    ui.conversation.scrollTop = ui.conversation.scrollHeight;
+}
+
+ui.conversation.addEventListener('click', async event => {
+    const upload = event.target.closest('[data-empty-upload]');
+    const prompt = event.target.closest('[data-prompt]');
+    const sendButton = event.target.closest('[data-send]');
+    const tab = event.target.closest('.page-tab[data-digest]');
+    const copy = event.target.closest('[data-copy]');
+    const retry = event.target.closest('[data-retry]');
+    if (upload) pickFiles();
+    if (prompt) send(prompt.dataset.prompt);
+    if (sendButton && !sendButton.closest('.is-stale')) send(sendButton.dataset.send);
+    if (tab) openViewer({ digest: tab.dataset.digest, page: Number(tab.dataset.page), doc: tab.dataset.doc, trigger: tab });
+    if (copy) {
+        const index = [...ui.conversation.querySelectorAll('.message')].indexOf(copy.closest('.message'));
+        const message = state.messages[index];
+        try {
+            await navigator.clipboard.writeText(plainText(message?.content || copy.closest('.message').innerText));
+            copy.textContent = 'Copied';
+            setTimeout(() => { copy.textContent = 'Copy'; }, 1600);
+        } catch {
+            toast('Copy is blocked in this browser.');
+        }
+    }
+    if (retry) {
+        const messages = [...ui.conversation.querySelectorAll('.message')];
+        const index = messages.indexOf(retry.closest('.message'));
+        const question = state.messages.slice(0, index).reverse().find(item => item.role === 'user');
+        if (question) send(question.content);
+    }
+});
+
+// ------------------------------------------------------------------ sending
+
+const STAGES = { indexing: 'Preparing your PDFs', searching: 'Searching', writing: 'Writing', revising: 'Fixing unsupported statements', checking: 'Checking citations against your PDF', summarizing: 'Reading' };
+
+function pendingNode() {
+    const node = document.createElement('article');
+    node.className = 'message assistant pending';
+    node.setAttribute('aria-busy', 'true');
+    node.innerHTML = '<div class="message-body"><p class="working" role="status"><span class="working-mark" aria-hidden="true"></span><span class="working-text">Thinking</span></p><div class="draft answer"></div></div>';
+    threadNode().append(node);
+    scrollToEnd();
+    return node;
+}
+
+function toolPrompt(tool) {
+    const topic = currentTopic()?.label;
+    const quoted = topic ? `"${topic}"` : null;
+    const scope = state.activeNames.length > 1 ? 'the selected PDFs' : state.activeNames[0];
+    return {
+        explain: quoted ? `Explain ${quoted}` : `Explain the main ideas of ${scope} in simple language`,
+        summary: quoted ? `Summarize ${quoted}` : `Summarize ${scope}`,
+        quiz: quoted ? `Make a 5 question quiz on ${quoted}` : `Make a 10 question quiz on ${scope}`,
+        flashcards: quoted ? `Make flashcards on ${quoted}` : `Make flashcards from ${scope}`,
+        practice: quoted ? `Quiz me on ${quoted}, one question at a time` : `Quiz me on ${scope}, one question at a time`,
+        guide: quoted ? `Make a study guide for ${quoted}` : `Make a study guide for ${scope}`,
+        terms: quoted ? `List the key terms in ${quoted}` : `List the key terms in ${scope}`
+    }[tool];
+}
+
+ui.tools.addEventListener('click', event => {
+    const button = event.target.closest('[data-tool]');
+    if (button) send(toolPrompt(button.dataset.tool));
+});
+
+async function send(text) {
+    const message = String(text || '').trim();
+    if (!message || state.sending || state.uploading) return;
+    if (!state.model) return toast('No local model is available. Start Ollama, then check again.');
+    const target = state.conversationId;
+    state.sending = true;
+    state.controller = new AbortController();
+    syncControls();
+    ui.input.value = '';
+    autosize();
+    appendMessage({ role: 'user', content: message });
+    state.messages.push({ role: 'user', content: message });
+    markStalePractice();
+    const pending = pendingNode();
+    const working = pending.querySelector('.working-text');
+    const draft = pending.querySelector('.draft');
+    let draftText = '';
+    let finished = null;
 
     try {
         const response = await fetch(`${API_BASE_URL}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                message,
-                sessionId,
-                conversationId: targetConversationId,
-                model: selectedModel,
-                stream: true
-            })
+            signal: state.controller.signal,
+            body: JSON.stringify({ message, sessionId, conversationId: target, model: state.model, stream: true, sourceMode: sourceMode(), topicReset: state.topicReset || undefined })
         });
-
         if (!response.ok) {
             const data = await response.json().catch(() => ({}));
-            throw new Error(data.error || `Chat request failed (${response.status}).`);
+            throw Object.assign(new Error(data.error || `Request failed (${response.status}).`), { status: response.status });
         }
-
-        if (!response.body) throw new Error('This browser cannot receive streamed responses.');
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let pending = '';
-        let answer = '';
-        let finished = false;
-        let answerElement = null;
-
-        function updateAnswer() {
-            if (currentConversationId !== targetConversationId) return;
-            removeTypingIndicator();
-            if (!answerElement) answerElement = addMessageToUI('', 'bot').querySelector('.message-content');
-            answerElement.innerHTML = formatMessage(answer, true);
-            scrollToBottom();
-        }
-
-        function handleEvent(line) {
+        let buffer = '';
+        const handle = line => {
             if (!line.trim()) return;
             const event = JSON.parse(line);
-            if (event.type === 'delta') {
-                answer += event.content || '';
-                updateAnswer();
+            if (event.type === 'status') {
+                const stage = STAGES[event.stage] || 'Working';
+                working.textContent = event.detail || stage;
+            } else if (event.type === 'draft') {
+                if (event.reset) draftText = '';
+                else draftText += event.content || '';
+                draft.innerHTML = draftText ? '<span class="draft-label">Draft, not yet checked against your PDF</span>' + renderMarkdown(draftText.replace(/\[(\d+)\]/g, '')) : '';
+                if (ui.conversation.scrollHeight - ui.conversation.scrollTop - ui.conversation.clientHeight < 160) scrollToEnd();
             } else if (event.type === 'done') {
-                answer = event.answer || answer;
-                finished = true;
-                updateAnswer();
+                finished = event;
             } else if (event.type === 'error') {
-                throw new Error(event.error || 'Ollama stopped generating.');
+                throw new Error(event.error || 'The local model stopped.');
             }
-        }
-
+        };
         while (true) {
             const { value, done } = await reader.read();
             if (done) break;
-            pending += decoder.decode(value, { stream: true });
-            const lines = pending.split('\n');
-            pending = lines.pop();
-            for (const line of lines) handleEvent(line);
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            lines.forEach(handle);
         }
-        pending += decoder.decode();
-        if (pending.trim()) handleEvent(pending);
-        if (!finished) throw new Error('Ollama closed the response before finishing.');
-
-        removeTypingIndicator();
-        if (currentConversationId === targetConversationId) {
-            currentMessages.push({ role: 'assistant', content: answer, timestamp: new Date().toISOString() });
-        }
-        await refreshSidebarOnly();
+        handle(buffer + decoder.decode());
+        if (!finished) throw new Error('The response ended early. Try again.');
+        if (state.conversationId !== target) return;
+        pending.remove();
+        state.messages.push({ role: 'assistant', content: finished.answer });
+        appendMessage({ role: 'assistant', content: finished.answer });
+        state.topicReset = false;
+        if ('topic' in finished) state.activeTopic = finished.topic;
+        markStalePractice();
+        renderContext();
     } catch (error) {
-        console.error('Send message error:', error);
-        removeTypingIndicator();
-        if (currentConversationId === targetConversationId) {
-            addMessageToUI(`Response stopped: ${error.message}`, 'error');
+        pending.remove();
+        if (state.conversationId !== target) return;
+        if (error.name === 'AbortError') {
+            appendMessage({ role: 'notice', content: 'Stopped. Nothing was saved for that question.' });
+        } else {
+            appendMessage({ role: 'error', content: error.message });
+            if (error.status === 401) return signOutLocally(true);
+            if (/ollama|model|reach/i.test(error.message)) loadModels();
         }
-        if (/ollama|model|connect|fetch/i.test(error.message)) {
-            setOllamaStatus(`${error.message} Check Ollama, then refresh models.`, 'error');
-            selectedModel = '';
-            embeddingAvailable = false;
-            ollamaModel.disabled = true;
-        }
+        state.messages.pop();
     } finally {
-        isSending = false;
-        syncOllamaControls();
+        state.sending = false;
+        state.controller = null;
+        syncControls();
+        refreshHistory();
     }
 }
 
+ui.composer.addEventListener('submit', event => {
+    event.preventDefault();
+    if (state.sending) return state.controller?.abort();
+    send(ui.input.value);
+});
 
-if (uploadBtn) {
-    uploadBtn.addEventListener('click', () => fileInput.click());
+function autosize() {
+    ui.input.style.height = 'auto';
+    ui.input.style.height = Math.min(ui.input.scrollHeight, 220) + 'px';
+    syncControls();
 }
-
-if (fileInput) {
-    fileInput.addEventListener('change', async (e) => {
-        const files = e.target.files;
-        if (files.length === 0) return;
-        const targetConversationId = currentConversationId;
-
-        isUploading = true;
-        syncOllamaControls();
-        const fileNames = Array.from(files).map(f => f.name);
-
-        if (currentMessages.length === 0) chatMessages.replaceChildren();
-        for (const file of files) {
-            if (file.size > 10 * 1024 * 1024) {
-                addMessageToUI(`${file.name} exceeds the 10 MB limit.`, 'error');
-                fileInput.value = '';
-                isUploading = false;
-                syncOllamaControls();
-                return;
-            }
-        }
-
-        addMessageToUI(`Reading ${fileNames.length} PDF${fileNames.length === 1 ? '' : 's'}...`, 'notice');
-        const spinnerEl = chatMessages.lastElementChild;
-
-        const formData = new FormData();
-        for (let file of files) formData.append('files', file);
-        formData.append('sessionId', sessionId);
-        formData.append('conversationId', targetConversationId);
-
-        try {
-            const response = await fetch(`${API_BASE_URL}/upload`, {
-                method: 'POST',
-                body: formData
-            });
-            const result = await response.json();
-
-            if (spinnerEl && spinnerEl.parentNode) spinnerEl.remove();
-
-            if (currentConversationId === targetConversationId && result.success) {
-                const allPDFNames = result.pdfNames || fileNames;
-                const fileLabel = fileNames.length === 1 ? fileNames[0] : `${fileNames.length} PDFs`;
-                const truncated = result.truncated ? ' Some text was trimmed to fit the size limit.' : '';
-                const extraction = (result.extractedPages || []).map(file =>
-                    `${file.name}: ${file.readablePages}/${file.pages} pages read`).join(' · ');
-                addMessageToUI(`Added ${fileLabel}. ${result.pdfCount} of ${result.maxPDFs} PDFs in this conversation.${extraction ? ' ' + extraction + '.' : ''}${truncated}`, 'notice');
-                enablePDFMode(result.activePdfNames?.[0] || fileNames[0], result.pdfCount || 1, allPDFNames, result.activePdfNames || allPDFNames);
-            } else if (currentConversationId === targetConversationId) {
-                addMessageToUI(`Upload failed: ${result.error || 'Please try again.'}`, 'error');
-            }
-        } catch (error) {
-            if (spinnerEl && spinnerEl.parentNode) spinnerEl.remove();
-            if (currentConversationId === targetConversationId) {
-                addMessageToUI('Upload failed. Check Ollama and the Cerebro server, then try again.', 'error');
-            }
-        }
-
-        isUploading = false;
-        syncOllamaControls();
-        fileInput.value = '';
-
-        await refreshSidebarOnly();
-    });
-}
-
-
-function formatMessage(text, allowStudy = false) {
-    if (!text) return '';
-    const markdown = value => window.CerebroMarkdown
-        ? window.CerebroMarkdown.render(value)
-        : '<p>' + escapeHtml(value).replace(/\n/g, '<br>') + '</p>';
-
-    function render(value) {
-        const citations = [];
-        const prepared = allowStudy ? value.replace(
-            /\[([^\n]+?, p\. (\d+))\]\(cerebro:([a-f0-9]{64}):(\d+)\)/g,
-            (original, label, displayedPage, digest, sourcePage) => {
-                if (displayedPage !== sourcePage) return original;
-                const marker = 'CEREBRO_CITATION_' + citations.length + '_END';
-                citations.push('<button type="button" class="source-citation" data-digest="' +
-                    digest + '" data-page="' + sourcePage + '">' + escapeHtml(label) + '</button>');
-                return marker;
-            }
-        ) : value;
-        return markdown(prepared).replace(/CEREBRO_CITATION_(\d+)_END/g,
-            (marker, index) => citations[Number(index)] || marker);
+ui.input.addEventListener('input', autosize);
+ui.input.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        if (!state.sending) send(ui.input.value);
     }
+});
 
-    const marker = '\n\nAnswer key:\n';
-    const markerIndex = allowStudy ? text.indexOf(marker) : -1;
-    if (markerIndex !== -1 && /^(?:Reviewed study set|Flashcards|Multiple choice|Complete the definitions|Short answer|Fill in the blanks)/.test(text)) {
-        return render(text.slice(0, markerIndex)) +
-            '<details class="study-answers"><summary>Show answers</summary>' +
-            render(text.slice(markerIndex + marker.length)) + '</details>';
-    }
-    return render(text);
+// ------------------------------------------------------------------ viewer
+
+const viewer = { url: '', page: 1, trigger: null, request: 0 };
+
+function setViewerPage(page) {
+    viewer.page = Math.max(1, page);
+    ui.viewerPage.textContent = 'p. ' + viewer.page;
+    ui.viewerFrame.src = viewer.url + '#page=' + viewer.page;
 }
 
-chatMessages?.addEventListener('click', async event => {
-    const citation = event.target.closest('.source-citation');
-    if (!citation) return;
-    const tab = window.open('about:blank', '_blank');
-    if (!tab) return addMessageToUI('Allow a new tab to open the cited PDF page.', 'notice');
-    tab.opener = null;
+async function openViewer({ digest, page = 1, doc, trigger }) {
+    const conversationId = state.conversationId;
+    const id = ++viewer.request;
+    const hash = digest || docInfo(doc)?.digest;
+    if (!hash) return toast('This PDF has no stored original to show. Upload it again to view its pages.');
     try {
         const response = await fetch(API_BASE_URL + '/source', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionId, conversationId: currentConversationId, digest: citation.dataset.digest })
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionId, conversationId, digest: hash })
         });
         if (!response.ok) throw new Error();
         const url = URL.createObjectURL(await response.blob());
-        tab.location.replace(url + '#page=' + citation.dataset.page);
-        setTimeout(() => URL.revokeObjectURL(url), 120000);
+        if (id !== viewer.request || conversationId !== state.conversationId) return URL.revokeObjectURL(url);
+        if (viewer.url) URL.revokeObjectURL(viewer.url);
+        viewer.url = url;
+        viewer.trigger = trigger || document.activeElement;
+        ui.viewerTitle.textContent = doc || 'PDF';
+        ui.workspace.classList.add('viewing');
+        ui.viewer.setAttribute('aria-hidden', 'false');
+        setViewerPage(page);
+        $('viewerClose').focus();
     } catch {
-        tab.close();
-        addMessageToUI('Select the cited PDF in Sources. If it was removed, upload the original again.', 'notice');
+        toast('That PDF is not available. It may have been removed or unticked in Sources.');
     }
+}
+
+function closeViewer() {
+    viewer.request++;
+    if (!ui.workspace.classList.contains('viewing')) return;
+    ui.workspace.classList.remove('viewing');
+    ui.viewer.setAttribute('aria-hidden', 'true');
+    ui.viewerFrame.removeAttribute('src');
+    if (viewer.url) URL.revokeObjectURL(viewer.url);
+    viewer.url = '';
+    if (viewer.trigger?.isConnected) viewer.trigger.focus();
+    syncScrim();
+}
+
+$('viewerPrev').addEventListener('click', () => setViewerPage(viewer.page - 1));
+$('viewerNext').addEventListener('click', () => setViewerPage(viewer.page + 1));
+$('viewerClose').addEventListener('click', closeViewer);
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || document.querySelector('dialog[open]')) return;
+    if (ui.workspace.classList.contains('viewing')) closeViewer();
+    else if (overlayWidth() && !ui.workspace.classList.contains('sources-hidden')) setSources(false);
+    else if (narrow() && !ui.workspace.classList.contains('rail-hidden')) setRail(false);
 });
 
-function showTypingIndicator() {
-    const typingDiv = document.createElement('div');
-    typingDiv.className = 'message bot typing';
-    typingDiv.id = 'typingIndicator';
-    typingDiv.innerHTML = '<div class="message-content">Generating...</div>';
-    chatMessages.appendChild(typingDiv);
-    scrollToBottom();
+// ------------------------------------------------------------------ settings and account
+
+function signOutLocally(expired = false) {
+    localStorage.removeItem('cerebro_session');
+    localStorage.removeItem('cerebro_user');
+    window.location.href = expired ? 'login.html?expired=1' : 'login.html';
 }
 
-function removeTypingIndicator() {
-    const typing = document.getElementById('typingIndicator');
-    if (typing) typing.remove();
+function openSettings() {
+    document.querySelectorAll('[data-theme-choice]').forEach(input => { input.checked = input.value === document.documentElement.dataset.theme; });
+    ui.settings.showModal();
 }
-
-function scrollToBottom() {
-    chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-function escapeHtml(unsafe) {
-    if (!unsafe) return '';
-    return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-}
-
-if (sendBtn) sendBtn.addEventListener('click', sendMessage);
-if (chatInput) {
-    chatInput.addEventListener('keydown', event => {
-        if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-            event.preventDefault();
-            sendMessage();
-        }
+$('settingsBtn').addEventListener('click', openSettings);
+document.querySelectorAll('input[name="sourceMode"]').forEach(input => {
+    input.checked = input.value === sourceMode();
+    input.addEventListener('change', () => {
+        if (input.checked) localStorage.setItem('cerebro_source_mode', input.value);
     });
-    chatInput.addEventListener('input', () => {
-        syncOllamaControls();
-        chatInput.style.height = 'auto';
-        chatInput.style.height = `${Math.min(chatInput.scrollHeight, 160)}px`;
-    });
-}
-if (newChatBtn) newChatBtn.addEventListener('click', createNewConversation);
+});
+$('accountName').textContent = [user.firstName, user.lastName].filter(Boolean).join(' ') || 'Signed in';
+$('accountEmail').textContent = user.email || '';
+$('userName').textContent = user.firstName || user.lastName || 'Account';
+$('userInitial').textContent = (user.firstName || user.lastName || '?').slice(0, 1).toUpperCase();
 
-if (logoutBtn) {
-    logoutBtn.addEventListener('click', async () => {
-        if (sessionId) {
-            try {
-                await fetch(`${API_BASE_URL}/auth/logout`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sessionId })
-                });
-            } catch (e) { }
-        }
-        localStorage.removeItem('cerebro_session');
-        localStorage.removeItem('cerebro_user');
-        window.location.href = 'index.html';
-    });
-}
-
-if (deleteAccountBtn) {
-    deleteAccountBtn.addEventListener('click', async () => {
-        if (confirm('WARNING: This will permanently delete your account and all your data. This action cannot be undone. Are you sure?')) {
-            const confirmText = prompt('Type "DELETE" to confirm deletion:');
-            if (confirmText === 'DELETE') {
-                try {
-                    await fetch(`${API_BASE_URL}/auth/delete-account`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ sessionId })
-                    });
-                    localStorage.removeItem('cerebro_session');
-                    localStorage.removeItem('cerebro_user');
-                    alert('Your account has been deleted.');
-                    window.location.href = 'index.html';
-                } catch (error) {
-                    alert('Error deleting account. Please try again.');
-                }
-            } else {
-                alert('Deletion cancelled.');
-            }
-        }
-    });
-}
-
-let resizeTimeout;
-window.addEventListener('resize', () => {
-    clearTimeout(resizeTimeout);
-    resizeTimeout = setTimeout(() => {
-        if (isPDFMode && currentPDFNames.length > 0) {
-            renderPDFChips();
-        }
-    }, 250);
+$('logoutBtn').addEventListener('click', async () => {
+    try { await api('/auth/logout', { method: 'POST', body: { sessionId } }); } catch {}
+    signOutLocally();
+});
+$('deleteAccountBtn').addEventListener('click', async () => {
+    ui.settings.close();
+    if (!await confirmAction('Delete your account?', 'All chats, uploaded PDFs and indexes for this account are removed from this computer. This cannot be undone.', 'Delete account')) return;
+    try { await api('/auth/delete-account', { method: 'POST', body: { sessionId } }); } catch {}
+    signOutLocally();
 });
 
-loadConversations();
+// ------------------------------------------------------------------ start
 
-window.loadConversation = loadConversation;
-window.editConversation = editConversation;
-window.deleteConversation = deleteConversation;
+async function start() {
+    initialLayout();
+    renderLibrary();
+    loadModels();
+    await refreshHistory();
+    if (state.conversations.length) await openConversation(state.conversations[0].id);
+    else await createConversation();
+    try {
+        const pending = sessionStorage.getItem('cerebro_pending_prompt');
+        sessionStorage.removeItem('cerebro_pending_prompt');
+        if (pending) {
+            ui.input.value = pending;
+            autosize();
+            ui.input.focus();
+        }
+    } catch {}
+}
+
+start();

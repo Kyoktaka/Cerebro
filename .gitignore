@@ -28,3 +28,6 @@ Thumbs.db
 # Backup files
 *.bak
 *.tmp
+
+# Sign-in sessions
+sessions/

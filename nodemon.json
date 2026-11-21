@@ -1,0 +1,5 @@
+{
+    "watch": ["server.js", "local-ai.js", "document-answers.js", "sessions.js", "engine/", ".env"],
+    "ext": "js,json",
+    "ignore": ["users/", "uploads/", "indexes/", "sessions/", "public/", "test/", "docs/", "examples/"]
+}
